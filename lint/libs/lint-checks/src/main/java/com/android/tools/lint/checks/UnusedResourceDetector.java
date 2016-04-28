@@ -32,7 +32,6 @@ import com.android.builder.model.ProductFlavor;
 import com.android.builder.model.ProductFlavorContainer;
 import com.android.builder.model.SourceProvider;
 import com.android.builder.model.Variant;
-import com.android.ide.common.resources.ResourceUrl;
 import com.android.resources.ResourceFolderType;
 import com.android.resources.ResourceType;
 import com.android.tools.lint.checks.ResourceUsageModel.Resource;
@@ -48,7 +47,6 @@ import com.android.tools.lint.detector.api.LintUtils;
 import com.android.tools.lint.detector.api.Location;
 import com.android.tools.lint.detector.api.Project;
 import com.android.tools.lint.detector.api.ResourceContext;
-import com.android.tools.lint.detector.api.ResourceEvaluator;
 import com.android.tools.lint.detector.api.ResourceXmlDetector;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
@@ -58,16 +56,10 @@ import com.android.utils.XmlUtils;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.common.io.Files;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiField;
 
 import org.jetbrains.uast.UElement;
-import org.jetbrains.uast.UFile;
+import org.jetbrains.uast.UExpression;
 import org.jetbrains.uast.UImportStatement;
-import org.jetbrains.uast.USimpleReferenceExpression;
-import org.jetbrains.uast.UVariable;
-import org.jetbrains.uast.UastUtils;
-import org.jetbrains.uast.visitor.AbstractUastVisitor;
 import org.jetbrains.uast.visitor.UastVisitor;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
@@ -518,17 +510,6 @@ public class UnusedResourceDetector extends ResourceXmlDetector implements Detec
         return Collections.<Class<? extends UElement>>singletonList(UImportStatement.class);
     }
 
-    @Nullable
-    @Override
-    public UastVisitor createUastVisitor(@NonNull JavaContext context) {
-        if (context.getDriver().getPhase() == 1) {
-            return new UnusedResourceVisitor(context);
-        } else {
-            // Second pass, computing resource declaration locations: No need to look at Java
-            return null;
-        }
-    }
-
     @Override
     public boolean appliesToResourceRefs() {
         return true;
@@ -536,66 +517,11 @@ public class UnusedResourceDetector extends ResourceXmlDetector implements Detec
 
     @Override
     public void visitResourceReference(@NonNull JavaContext context, @Nullable UastVisitor visitor,
-            @NonNull UElement node, @NonNull ResourceType type, @NonNull String name,
+            @NonNull UExpression node, @NonNull ResourceType type, @NonNull String name,
             boolean isFramework) {
         if (!isFramework) {
             ResourceUsageModel.markReachable(mModel.addResource(type, name, null));
         }
-    }
-
-    // Look for references and declarations
-    private class UnusedResourceVisitor extends AbstractUastVisitor {
-        private final JavaContext mContext;
-
-        public UnusedResourceVisitor(JavaContext context) {
-            mContext = context;
-        }
-
-        @Override
-        public boolean visitImportStatement(UImportStatement node) {
-            if (mScannedForStaticImports) {
-                return super.visitImportStatement(node);
-            }
-
-            if (node.isStarImport()) {
-                // Wildcard import of whole type:
-                // import static pkg.R.type.*;
-                // We have to do a more expensive analysis here to
-                // for example recognize "x" as a reference to R.string.x
-                mScannedForStaticImports = true;
-                UFile containingFile = UastUtils.getContainingFile(node);
-                if (containingFile != null) {
-                    containingFile.accept(new AbstractUastVisitor() {
-                        @Override
-                        public boolean visitSimpleReferenceExpression(USimpleReferenceExpression node) {
-                            UElement resolved = node.resolve(mContext);
-                            if (resolved instanceof UVariable) {
-                                ResourceUrl url = ResourceEvaluator.getResourceConstant(resolved, mContext);
-                                if (url != null && !url.framework) {
-                                    Resource resource = mModel.addResource(url.type, url.name, null);
-                                    ResourceUsageModel.markReachable(resource);
-                                }
-                            }
-
-                            return super.visitSimpleReferenceExpression(node);
-                        }
-                    });
-                }
-            } else {
-                UElement resolved = node.resolve(mContext);
-                if (resolved instanceof UVariable) {
-                    ResourceUrl url = ResourceEvaluator.getResourceConstant(resolved, mContext);
-                    if (url != null && !url.framework) {
-                        Resource resource = mModel.addResource(url.type, url.name, null);
-                        ResourceUsageModel.markReachable(resource);
-                    }
-                }
-            }
-
-            return super.visitImportStatement(node);
-        }
-
-        private boolean mScannedForStaticImports;
     }
 
     private static class UnusedResourceDetectorUsageModel extends ResourceUsageModel {

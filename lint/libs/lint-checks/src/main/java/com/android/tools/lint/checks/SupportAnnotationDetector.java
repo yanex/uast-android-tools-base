@@ -49,12 +49,12 @@ import com.android.sdklib.AndroidVersion;
 import com.android.tools.lint.checks.PermissionFinder.Operation;
 import com.android.tools.lint.checks.PermissionFinder.Result;
 import com.android.tools.lint.checks.PermissionHolder.SetPermissionLookup;
+import com.android.tools.lint.client.api.JavaEvaluator;
 import com.android.tools.lint.client.api.LintClient;
 import com.android.tools.lint.client.api.UastLintUtils;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.ConstantEvaluator;
 import com.android.tools.lint.detector.api.Detector;
-import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
@@ -66,29 +66,11 @@ import com.android.tools.lint.detector.api.TextFormat;
 import com.android.utils.XmlUtils;
 import com.google.common.base.Joiner;
 import com.google.common.collect.Sets;
-import com.intellij.psi.PsiArrayInitializerExpression;
-import com.intellij.psi.PsiArrayType;
-import com.intellij.psi.PsiAssignmentExpression;
-import com.intellij.psi.PsiDeclarationStatement;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiExpression;
-import com.intellij.psi.PsiExpressionList;
-import com.intellij.psi.PsiExpressionStatement;
-import com.intellij.psi.PsiField;
-import com.intellij.psi.PsiLocalVariable;
-import com.intellij.psi.PsiMethodCallExpression;
-import com.intellij.psi.PsiNewExpression;
-import com.intellij.psi.PsiParenthesizedExpression;
-import com.intellij.psi.PsiReference;
-import com.intellij.psi.PsiReferenceExpression;
-import com.intellij.psi.PsiStatement;
-import com.intellij.psi.PsiType;
-import com.intellij.psi.PsiTypeCastExpression;
-import com.intellij.psi.util.PsiTreeUtil;
 
 import org.jetbrains.uast.UAnnotation;
 import org.jetbrains.uast.UArrayType;
 import org.jetbrains.uast.UBinaryExpression;
+import org.jetbrains.uast.UBinaryExpressionWithType;
 import org.jetbrains.uast.UCallExpression;
 import org.jetbrains.uast.UCatchClause;
 import org.jetbrains.uast.UClass;
@@ -104,10 +86,8 @@ import org.jetbrains.uast.UTryExpression;
 import org.jetbrains.uast.UType;
 import org.jetbrains.uast.UVariable;
 import org.jetbrains.uast.UastBinaryOperator;
-import org.jetbrains.uast.UastCallKind;
 import org.jetbrains.uast.UastContext;
 import org.jetbrains.uast.UastFunctionKind;
-import org.jetbrains.uast.UastModifier;
 import org.jetbrains.uast.UastPrefixOperator;
 import org.jetbrains.uast.UastUtils;
 import org.jetbrains.uast.UastVariableKind;
@@ -116,6 +96,7 @@ import org.jetbrains.uast.UConstantValue;
 import org.jetbrains.uast.USimpleConstantValue;
 import org.jetbrains.uast.UTypeValue;
 import org.jetbrains.uast.expressions.UReferenceExpression;
+import org.jetbrains.uast.util.UastExpressionUtils;
 import org.jetbrains.uast.visitor.AbstractUastVisitor;
 import org.jetbrains.uast.visitor.UastVisitor;
 import org.w3c.dom.Document;
@@ -140,7 +121,7 @@ import java.util.Set;
  * specifying toInclusive without setting to, combining @ColorInt with any @ResourceTypeRes,
  * using @CheckResult on a void method, etc.
  */
-public class SupportAnnotationDetector extends Detector implements JavaPsiScanner {
+public class SupportAnnotationDetector extends Detector implements Detector.UastScanner {
 
     public static final Implementation IMPLEMENTATION
             = new Implementation(SupportAnnotationDetector.class, Scope.JAVA_FILE_SCOPE);
@@ -441,7 +422,8 @@ public class SupportAnnotationDetector extends Detector implements JavaPsiScanne
             return;
         }
 
-        EnumSet<ResourceType> types = null; //TODO ResourceEvaluator.getResourceTypes(context.getEvaluator(), argument);
+        EnumSet<ResourceType> types = ResourceEvaluator.getResourceTypes(
+                context.getEvaluator(), context, argument);
 
         if (types != null && types.contains(COLOR)
                 && !isIgnoredInIde(COLOR_USAGE, context, argument)) {
@@ -735,9 +717,11 @@ public class SupportAnnotationDetector extends Detector implements JavaPsiScanne
         }
     }
 
-    private static void checkResult(@NonNull JavaContext context, @NonNull UElement node,
+    private static void checkResult(
+            @NonNull JavaContext context,
+            @NonNull UElement node,
             @NonNull UAnnotation annotation) {
-        if (skipParentheses(node.getParent()) instanceof PsiExpressionStatement) {
+        if (skipParentheses(node.getParent()) instanceof UExpression) {
             String methodName = JavaContext.getMethodName(node);
             String suggested = getAnnotationStringValue(annotation, ATTR_SUGGEST);
 
@@ -823,7 +807,8 @@ public class SupportAnnotationDetector extends Detector implements JavaPsiScanne
 
     /** Attempts to infer the current thread context at the site of the given method call */
     @Nullable
-    private static String getThreadContext(@NonNull JavaContext context,
+    private static String getThreadContext(
+            @NonNull JavaContext context,
             @NonNull UElement methodCall) {
         UFunction parentFunction = UastUtils.getParentOfType(methodCall, UFunction.class, true);
         if (parentFunction != null) {
@@ -878,7 +863,7 @@ public class SupportAnnotationDetector extends Detector implements JavaPsiScanne
         } else if (argument instanceof UPrefixExpression) {
             UPrefixExpression expression = (UPrefixExpression) argument;
             UExpression operand = expression.getOperand();
-            return operand != null && isNumber(operand);
+            return isNumber(operand);
         } else {
             return false;
         }
@@ -914,9 +899,8 @@ public class SupportAnnotationDetector extends Detector implements JavaPsiScanne
             @NonNull EnumSet<ResourceType> expectedType,
             @NonNull UCallExpression call,
             @NonNull UFunction calledMethod) {
-        EnumSet<ResourceType> actual = null; //TODO
-        // ResourceEvaluator.getResourceTypes(context.getEvaluator(),
-        //        argument);
+        EnumSet<ResourceType> actual = ResourceEvaluator.getResourceTypes(
+                context.getEvaluator(), context, argument);
 
         if (actual == null && (!isNumber(argument) || isZero(argument) || isMinusOne(argument)) ) {
             return;
@@ -931,11 +915,10 @@ public class SupportAnnotationDetector extends Detector implements JavaPsiScanne
         }
 
         if (expectedType.contains(ResourceType.STYLEABLE) && (expectedType.size() == 1)
-                && context.getEvaluator().isMemberInClass(calledMethod,
+                && JavaEvaluator.isMemberInClass(calledMethod,
                         "android.content.res.TypedArray")
-                && (call instanceof PsiMethodCallExpression)
-                && typeArrayFromArrayLiteral(((PsiMethodCallExpression) call)
-                    .getMethodExpression().getQualifierExpression())) {
+                && (UastExpressionUtils.isFunctionCall(call))
+                && typeArrayFromArrayLiteral(UastUtils.getQualifiedParentOrThis(call), context)) {
             // You're generally supposed to provide a styleable to the TypedArray methods,
             // but you're also allowed to supply an integer array
             return;
@@ -961,108 +944,73 @@ public class SupportAnnotationDetector extends Detector implements JavaPsiScanne
      * Returns true if the node is pointing to a TypedArray whose value was obtained
      * from an array literal
      */
-    public static boolean typeArrayFromArrayLiteral(@Nullable PsiElement node) {
-        if (node instanceof PsiMethodCallExpression) {
-            PsiMethodCallExpression expression = (PsiMethodCallExpression) node;
-            String name = expression.getMethodExpression().getReferenceName();
-            if (name != null && "obtainStyledAttributes".equals(name)) {
-                PsiExpressionList argumentList = expression.getArgumentList();
-                PsiExpression[] expressions = argumentList.getExpressions();
-                if (expressions.length > 0) {
-                    int arg;
-                    if (expressions.length == 1) {
-                        // obtainStyledAttributes(int[] attrs)
-                        arg = 0;
-                    } else if (expressions.length == 2) {
-                        // obtainStyledAttributes(AttributeSet set, int[] attrs)
-                        // obtainStyledAttributes(int resid, int[] attrs)
-                        for (arg = 0; arg < expressions.length; arg++) {
-                            PsiType type = expressions[arg].getType();
-                            if (type instanceof PsiArrayType) {
-                                break;
-                            }
-                        }
-                        if (arg == expressions.length) {
-                            return false;
-                        }
-                    } else if (expressions.length == 4) {
-                        // obtainStyledAttributes(AttributeSet set, int[] attrs, int defStyleAttr, int defStyleRes)
-                        arg = 1;
-                    } else {
+    public static boolean typeArrayFromArrayLiteral(@Nullable UElement node, UastContext context) {
+        if (node != null && UastExpressionUtils.isFunctionCall(node)) {
+            UCallExpression call = (UCallExpression) node;
+            if (call.matchesFunctionName("obtainStyledAttributes")
+                    && call.getValueArgumentCount() > 0) {
+                List<UExpression> args = call.getValueArguments();
+
+                int argIndex;
+                if (args.size() == 1) {
+                    // obtainStyledAttributes(int[] attrs)
+                    argIndex = 0;
+                } else if (args.size() == 2) {
+                    UFunction function = call.resolve(context);
+                    if (function == null) {
                         return false;
                     }
 
-                    return ConstantEvaluator.isArrayLiteral(expressions[arg]);
-                }
-            }
-            return false;
-        } else if (node instanceof PsiReference) {
-            PsiElement resolved = ((PsiReference) node).resolve();
-            if (resolved instanceof PsiField) {
-                PsiField field = (PsiField) resolved;
-                if (field.getInitializer() != null) {
-                    return typeArrayFromArrayLiteral(field.getInitializer());
-                }
-            } else if (resolved instanceof PsiLocalVariable) {
-                PsiLocalVariable variable = (PsiLocalVariable) resolved;
-                PsiStatement statement = PsiTreeUtil.getParentOfType(node, PsiStatement.class,
-                        false);
-                if (statement != null) {
-                    PsiStatement prev = PsiTreeUtil.getPrevSiblingOfType(statement,
-                            PsiStatement.class);
-                    String targetName = variable.getName();
-                    if (targetName == null) {
+                    List<UVariable> params = function.getValueParameters();
+                    if (params.size() < 2) {
                         return false;
                     }
-                    while (prev != null) {
-                        if (prev instanceof PsiDeclarationStatement) {
-                            for (PsiElement element : ((PsiDeclarationStatement) prev)
-                                    .getDeclaredElements()) {
-                                if (variable.equals(element)) {
-                                    return typeArrayFromArrayLiteral(variable.getInitializer());
-                                }
-                            }
-                        } else if (prev instanceof PsiExpressionStatement) {
-                            PsiExpression expression = ((PsiExpressionStatement) prev)
-                                    .getExpression();
-                            if (expression instanceof PsiAssignmentExpression) {
-                                PsiAssignmentExpression assign
-                                        = (PsiAssignmentExpression) expression;
-                                PsiExpression lhs = assign.getLExpression();
-                                if (lhs instanceof PsiReferenceExpression) {
-                                    PsiReferenceExpression reference = (PsiReferenceExpression) lhs;
-                                    if (targetName.equals(reference.getReferenceName()) &&
-                                            reference.getQualifier() == null) {
-                                        return typeArrayFromArrayLiteral(assign.getRExpression());
-                                    }
-                                }
-                            }
+
+                    // obtainStyledAttributes(AttributeSet set, int[] attrs)
+                    // obtainStyledAttributes(int resid, int[] attrs)
+                    for (argIndex = 0; argIndex < args.size(); argIndex++) {
+                        UType type = params.get(argIndex).getType();
+                        if (type instanceof UArrayType) {
+                            break;
                         }
-                        prev = PsiTreeUtil.getPrevSiblingOfType(prev,
-                                PsiStatement.class);
                     }
+                    if (argIndex == args.size()) {
+                        return false;
+                    }
+                } else if (args.size() == 4) {
+                    // obtainStyledAttributes(AttributeSet set, int[] attrs, int defStyleAttr, int defStyleRes)
+                    argIndex = 1;
+                } else {
+                    return false;
+                }
+
+                return ConstantEvaluator.isArrayLiteral(args.get(argIndex), context);
+            }
+            return false;
+        } else if (node instanceof UReferenceExpression) {
+            UDeclaration resolved = ((UReferenceExpression) node).resolve(context);
+            if (resolved instanceof UVariable) {
+                UVariable variable = (UVariable) resolved;
+                UExpression lastAssignment =
+                        UastLintUtils.findLastAssignment(variable, node, context);
+
+                if (lastAssignment != null) {
+                    return typeArrayFromArrayLiteral(lastAssignment, context);
                 }
             }
-        } else if (node instanceof PsiNewExpression) {
-            PsiNewExpression creation = (PsiNewExpression) node;
-            if (creation.getArrayInitializer() != null) {
-                return true;
-            }
-            PsiType type = creation.getType();
-            if (type instanceof PsiArrayType) {
-                return true;
-            }
-        } else if (node instanceof PsiParenthesizedExpression) {
-            PsiParenthesizedExpression parenthesizedExpression = (PsiParenthesizedExpression) node;
-            PsiExpression expression = parenthesizedExpression.getExpression();
-            if (expression != null) {
-                return typeArrayFromArrayLiteral(expression);
-            }
-        } else if (node instanceof PsiTypeCastExpression) {
-            PsiTypeCastExpression castExpression = (PsiTypeCastExpression) node;
-            PsiExpression operand = castExpression.getOperand();
+        } else if (UastExpressionUtils.isNewArrayWithInitializer(node)) {
+            return true;
+        } else if (UastExpressionUtils.isNewArrayWithDimensions(node)) {
+            return true;
+        } else if (node instanceof UParenthesizedExpression) {
+            UParenthesizedExpression parenthesizedExpression = (UParenthesizedExpression) node;
+            UExpression expression = parenthesizedExpression.getExpression();
+            return typeArrayFromArrayLiteral(expression, context);
+        } else if (UastExpressionUtils.isTypeCast(node)) {
+            UBinaryExpressionWithType castExpression = (UBinaryExpressionWithType) node;
+            UExpression operand = castExpression.getOperand();
             if (operand != null) {
-                return typeArrayFromArrayLiteral(operand);
+                return typeArrayFromArrayLiteral(operand, context);
             }
         }
 
@@ -1096,8 +1044,7 @@ public class SupportAnnotationDetector extends Detector implements JavaPsiScanne
             @NonNull JavaContext context,
             @NonNull UAnnotation annotation,
             @NonNull UElement argument) {
-        if (argument instanceof UCallExpression
-                && ((UCallExpression) argument).getKind() == UastCallKind.ARRAY_INITIALIZER) {
+        if (UastExpressionUtils.isNewArrayWithInitializer(argument)) {
             UCallExpression initializer = (UCallExpression) argument;
             for (UExpression expression : initializer.getValueArguments()) {
                 String error = getIntRangeError(context, annotation, expression);
@@ -1240,15 +1187,8 @@ public class SupportAnnotationDetector extends Detector implements JavaPsiScanne
         // TODO: Flow analysis
         // No flow analysis for this check yet, only checking literals passed in as parameters
 
-        if (argument instanceof PsiNewExpression) {
-            PsiNewExpression newExpression = (PsiNewExpression) argument;
-            PsiArrayInitializerExpression initializer = newExpression.getArrayInitializer();
-            if (initializer != null) {
-                PsiExpression[] initializers = initializer.getInitializers();
-                actual = initializers.length;
-            } else {
-                return;
-            }
+        if (UastExpressionUtils.isNewArrayWithInitializer(argument)) {
+            actual = ((UCallExpression) argument).getValueArgumentCount();
         } else {
             Object object = ConstantEvaluator.evaluate(context, argument);
             // Check string length
@@ -1322,7 +1262,7 @@ public class SupportAnnotationDetector extends Detector implements JavaPsiScanne
     }
 
     @Nullable
-    static UAnnotation findIntDef(@NonNull List<UAnnotation> annotations) {
+    private static UAnnotation findIntDef(@NonNull List<UAnnotation> annotations) {
         for (UAnnotation annotation : annotations) {
             if (INT_DEF_ANNOTATION.equals(annotation.getFqName())) {
                 return annotation;
@@ -1433,32 +1373,30 @@ public class SupportAnnotationDetector extends Detector implements JavaPsiScanne
                     return;
                 }
 
-                if (!variable.hasModifier(UastModifier.IMMUTABLE) &&
-                        (variable.getKind() == UastVariableKind.LOCAL_VARIABLE
-                                || variable.getKind() == UastVariableKind.VALUE_PARAMETER)) {
-                    UFunction containingFunction = UastUtils.getContainingFunction(argument);
-                    if (containingFunction != null) {
-                        ConstantEvaluator.LastAssignmentFinder finder
-                                = new ConstantEvaluator.LastAssignmentFinder(
-                                variable, argument, context, null,
-                                (variable.getKind() == UastVariableKind.VALUE_PARAMETER) ? 1 : 0);
-                        containingFunction.accept(finder);
+                UExpression lastAssignment =
+                        UastLintUtils.findLastAssignment(variable, argument, context);
 
-                        checkTypeDefConstant(context, annotation,
-                                finder.getLastAssignment(),
-                                errorNode != null ? errorNode : argument, flag,
+                checkTypeDefConstant(context, annotation,
+                        lastAssignment,
+                        errorNode != null ? errorNode : argument, flag,
+                        allAnnotations);
+            }
+        } else if (UastExpressionUtils.isNewArrayWithInitializer(argument)) {
+            UCallExpression call = (UCallExpression) argument;
+
+            UType maybeArrayType = call.resolveType(context);
+            if (maybeArrayType instanceof UArrayType) {
+                UArrayType arrayType = (UArrayType) maybeArrayType;
+                UType deepType = arrayType.findDeepElementType();
+
+                if (deepType.isInt() || deepType.isLong()) {
+                    for (UExpression expression : call.getValueArguments()) {
+                        checkTypeDefConstant(context, annotation, expression, errorNode, flag,
                                 allAnnotations);
                     }
-                } else {
-                    UExpression initializer = variable.getInitializer();
-
-                    checkTypeDefConstant(context, annotation,
-                            initializer,
-                            errorNode != null ? errorNode : argument, flag,
-                            allAnnotations);
                 }
             }
-        } //TODO
+        }
     }
 
     private static void checkTypeDefConstant(@NonNull JavaContext context,
@@ -1566,13 +1504,18 @@ public class SupportAnnotationDetector extends Detector implements JavaPsiScanne
             String s = null;
             if (allowedValue instanceof UReferenceExpression) {
                 UDeclaration resolved = ((UReferenceExpression) allowedValue).resolve(context);
-                if (resolved instanceof PsiField) {
-                    PsiField field = (PsiField) resolved;
-                    String containingClassName = field.getContainingClass() != null
-                            ? field.getContainingClass().getName() : null;
+                if (resolved instanceof UVariable
+                        && ((UVariable) resolved).getKind() == UastVariableKind.MEMBER) {
+                    UVariable field = (UVariable) resolved;
+                    UClass containingClass = UastUtils.getContainingClass(field);
+                    String containingClassName = containingClass != null
+                            ? containingClass.getName()
+                            : null;
+
                     if (containingClassName == null) {
                         continue;
                     }
+
                     s = containingClassName + "." + field.getName();
                 }
             }

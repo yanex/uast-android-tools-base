@@ -34,9 +34,9 @@ import org.jetbrains.uast.UElement;
 import org.jetbrains.uast.UFunction;
 import org.jetbrains.uast.UType;
 import org.jetbrains.uast.UVariable;
-import org.jetbrains.uast.UastCallKind;
 import org.jetbrains.uast.UastModifier;
 import org.jetbrains.uast.UastUtils;
+import org.jetbrains.uast.util.UastExpressionUtils;
 
 import java.util.Collections;
 import java.util.List;
@@ -94,7 +94,7 @@ public class HandlerDetector extends Detector implements Detector.UastScanner {
         //noinspection unchecked
         UCallExpression invocation = UastUtils.getParentOfType(declaration, UCallExpression.class,
                 true, UFunction.class);
-        if (invocation != null && invocation.getKind() == UastCallKind.CONSTRUCTOR_CALL) {
+        if (invocation != null && UastExpressionUtils.isConstructorCall(invocation)) {
             if (hasLooperConstructorParameter(declaration)) {
                 // This is an inner class which takes a Looper parameter:
                 // possibly used correctly from elsewhere

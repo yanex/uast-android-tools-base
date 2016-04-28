@@ -31,7 +31,6 @@ import com.android.tools.lint.detector.api.JavaContext;
 import com.android.tools.lint.detector.api.Location;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
-import com.intellij.psi.PsiType;
 
 import org.jetbrains.uast.UClass;
 import org.jetbrains.uast.UFunction;
@@ -101,7 +100,7 @@ public class ViewConstructorDetector extends Detector implements Detector.UastSc
         if (parameterCount == 2) {
             return true;
         }
-        return PsiType.INT.equals(parameters.get(2).getType());
+        return parameters.get(2).getType().isInt();
     }
 
     @Nullable

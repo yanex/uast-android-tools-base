@@ -41,6 +41,7 @@ import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.resources.ResourceFolderType;
 import com.android.resources.ResourceType;
+import com.android.tools.lint.client.api.AndroidReference;
 import com.android.tools.lint.client.api.UastLintUtils;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Context;
@@ -61,7 +62,7 @@ import org.jetbrains.uast.UCallExpression;
 import org.jetbrains.uast.UClass;
 import org.jetbrains.uast.UElement;
 import org.jetbrains.uast.UExpression;
-import org.jetbrains.uast.UQualifiedExpression;
+import org.jetbrains.uast.USimpleReferenceExpression;
 import org.jetbrains.uast.visitor.AbstractUastVisitor;
 import org.w3c.dom.Attr;
 import org.w3c.dom.Element;
@@ -512,14 +513,14 @@ public class OverdrawDetector extends LayoutDetector implements Detector.UastSca
         }
 
         @Override
-        public boolean visitQualifiedExpression(UQualifiedExpression node) {
-            UastLintUtils.AndroidReference androidReference = UastLintUtils
-                    .toAndroidReference(node, mContext);
+        public boolean visitSimpleReferenceExpression(USimpleReferenceExpression node) {
+            AndroidReference androidReference = UastLintUtils
+                    .toAndroidReferenceViaResolve(node, mContext);
             if (androidReference != null && androidReference.getType() == ResourceType.LAYOUT) {
                 registerLayoutActivity(androidReference.getName(), mName);
             }
 
-            return super.visitQualifiedExpression(node);
+            return super.visitSimpleReferenceExpression(node);
         }
 
         @Override
@@ -527,17 +528,15 @@ public class OverdrawDetector extends LayoutDetector implements Detector.UastSca
             if (node.matchesFunctionName(SET_THEME) && node.getValueArgumentCount() == 1) {
                 // Look at argument
                 UExpression arg = node.getValueArguments().get(0);
-                if (arg instanceof UQualifiedExpression) {
-                    UastLintUtils.AndroidReference androidReference = UastLintUtils
-                            .toAndroidReference((UQualifiedExpression) arg, mContext);
-                    if (androidReference != null
-                            && androidReference.getType() == ResourceType.STYLE) {
-                        String style = androidReference.getName();
-                        if (mActivityToTheme == null) {
-                            mActivityToTheme = new HashMap<String, String>();
-                        }
-                        mActivityToTheme.put(mName, STYLE_RESOURCE_PREFIX + style);
+                AndroidReference androidReference =
+                        UastLintUtils.toAndroidReferenceViaResolve(arg, mContext);
+                if (androidReference != null
+                        && androidReference.getType() == ResourceType.STYLE) {
+                    String style = androidReference.getName();
+                    if (mActivityToTheme == null) {
+                        mActivityToTheme = new HashMap<String, String>();
                     }
+                    mActivityToTheme.put(mName, STYLE_RESOURCE_PREFIX + style);
                 }
             }
 

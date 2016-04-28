@@ -58,7 +58,7 @@ import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
 import com.android.tools.lint.detector.api.XmlContext;
 
-import org.jetbrains.uast.UElement;
+import org.jetbrains.uast.UExpression;
 import org.jetbrains.uast.visitor.UastVisitor;
 import org.w3c.dom.Attr;
 import org.w3c.dom.Element;
@@ -113,7 +113,7 @@ public class PrivateResourceDetector extends ResourceXmlDetector implements
 
     @Override
     public void visitResourceReference(@NonNull JavaContext context, @Nullable UastVisitor visitor,
-            @NonNull UElement node, @NonNull ResourceType resourceType, @NonNull String name,
+            @NonNull UExpression node, @NonNull ResourceType resourceType, @NonNull String name,
             boolean isFramework) {
         if (context.getProject().isGradleProject() && !isFramework) {
             Project project = context.getProject();

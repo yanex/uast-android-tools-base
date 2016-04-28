@@ -26,6 +26,10 @@ import com.intellij.psi.PsiLocalVariable;
 import junit.framework.TestCase;
 
 import org.intellij.lang.annotations.Language;
+import org.jetbrains.uast.UExpression;
+import org.jetbrains.uast.UFile;
+import org.jetbrains.uast.UVariable;
+import org.jetbrains.uast.visitor.AbstractUastVisitor;
 
 import java.io.File;
 import java.util.EnumSet;
@@ -60,22 +64,22 @@ public class ResourceEvaluatorTest extends TestCase {
 
         JavaContext context = LintUtilsTest.parsePsi(source, new File("src/test/pkg/Test.java"));
         assertNotNull(context);
-        PsiJavaFile javaFile = context.getJavaFile();
-        assertNotNull(javaFile);
+        UFile ufile = context.getUFile();
+        assertNotNull(ufile);
 
         // Find the expression
-        final AtomicReference<PsiExpression> reference = new AtomicReference<PsiExpression>();
-        javaFile.accept(new JavaRecursiveElementVisitor() {
+        final AtomicReference<UExpression> reference = new AtomicReference<UExpression>();
+        ufile.accept(new AbstractUastVisitor() {
             @Override
-            public void visitLocalVariable(PsiLocalVariable variable) {
-                super.visitLocalVariable(variable);
-                String name = variable.getName();
-                if (name != null && name.equals(targetVariable)) {
+            public boolean visitVariable(UVariable variable) {
+                if (variable.matchesName(targetVariable)) {
                     reference.set(variable.getInitializer());
                 }
+
+                return super.visitVariable(variable);
             }
         });
-        PsiExpression expression = reference.get();
+        UExpression expression = reference.get();
         ResourceEvaluator evaluator = new ResourceEvaluator(context.getEvaluator(), context)
                 .allowDereference(allowDereference);
 
@@ -90,7 +94,7 @@ public class ResourceEvaluatorTest extends TestCase {
                 assertEquals(expected, actual.toString());
             }
         } else {
-            EnumSet<ResourceType> types = null; //TODO evaluator.getResourceTypes(expression);
+            EnumSet<ResourceType> types = evaluator.getResourceTypes(expression);
             if (expected == null) {
                 assertNull(types);
             } else {

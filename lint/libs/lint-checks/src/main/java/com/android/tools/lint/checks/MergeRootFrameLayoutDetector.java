@@ -28,6 +28,7 @@ import static com.android.SdkConstants.VIEW_INCLUDE;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.resources.ResourceType;
+import com.android.tools.lint.client.api.AndroidReference;
 import com.android.tools.lint.client.api.UastLintUtils;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Context;
@@ -47,7 +48,6 @@ import com.android.utils.Pair;
 import org.jetbrains.uast.UCallExpression;
 import org.jetbrains.uast.UExpression;
 import org.jetbrains.uast.UFunction;
-import org.jetbrains.uast.UQualifiedExpression;
 import org.jetbrains.uast.visitor.UastVisitor;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
@@ -189,9 +189,9 @@ public class MergeRootFrameLayoutDetector extends LayoutDetector implements Dete
             @Nullable UastVisitor visitor, @NonNull UCallExpression call,
             @NonNull UFunction function) {
         List<UExpression> expressions = call.getValueArguments();
-        if (expressions.size() == 1 && expressions.get(0) instanceof UQualifiedExpression) {
-            UastLintUtils.AndroidReference androidReference = UastLintUtils
-                    .toAndroidReference(((UQualifiedExpression) expressions.get(0)), context);
+        if (expressions.size() == 1) {
+            AndroidReference androidReference =
+                    UastLintUtils.toAndroidReferenceViaResolve(expressions.get(0), context);
 
             if (androidReference != null && androidReference.getType() == ResourceType.LAYOUT) {
                 whiteListLayout(androidReference.getName());

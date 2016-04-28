@@ -56,10 +56,10 @@ import org.jetbrains.uast.UCallExpression;
 import org.jetbrains.uast.UElement;
 import org.jetbrains.uast.UFile;
 import org.jetbrains.uast.USimpleReferenceExpression;
-import org.jetbrains.uast.UastCallKind;
 import org.jetbrains.uast.UastContext;
 import org.jetbrains.uast.UastLanguagePlugin;
 import org.jetbrains.uast.psi.PsiElementBacked;
+import org.jetbrains.uast.util.UastExpressionUtils;
 
 import java.io.File;
 import java.util.Iterator;
@@ -583,9 +583,9 @@ public class JavaContext extends Context implements UastContext {
     public static String getMethodName(@NonNull UElement node) {
         if (node instanceof UCallExpression) {
             UCallExpression call = (UCallExpression) node;
-            if (call.getKind() == UastCallKind.FUNCTION_CALL) {
+            if (UastExpressionUtils.isFunctionCall(call)) {
                 return call.getFunctionName();
-            } else if (call.getKind() == UastCallKind.CONSTRUCTOR_CALL) {
+            } else if (UastExpressionUtils.isConstructorCall(call)) {
                 USimpleReferenceExpression classReference = call.getClassReference();
                 if (classReference != null) {
                     return classReference.getIdentifier();

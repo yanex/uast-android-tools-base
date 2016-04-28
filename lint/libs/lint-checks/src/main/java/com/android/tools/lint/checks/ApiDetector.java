@@ -148,6 +148,7 @@ import org.jetbrains.uast.UQualifiedExpression;
 import org.jetbrains.uast.UResolvable;
 import org.jetbrains.uast.USimpleReferenceExpression;
 import org.jetbrains.uast.UastCallKind;
+import org.jetbrains.uast.util.UastExpressionUtils;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.AbstractInsnNode;
@@ -2189,18 +2190,16 @@ public class ApiDetector extends ResourceXmlDetector
                         } else if (value instanceof String) {
                             return codeNameToApi((String) value);
                         }
-                    } else if (v instanceof UCallExpression) {
-                        if (((UCallExpression) v).getKind() == UastCallKind.ARRAY_INITIALIZER) {
-                            UCallExpression callExpression = (UCallExpression) v;
-                            for (UExpression arg : callExpression.getValueArguments()) {
-                                if (arg instanceof ULiteralExpression) {
-                                    ULiteralExpression literal = (ULiteralExpression)arg;
-                                    Object value = literal.getValue();
-                                    if (value instanceof Integer) {
-                                        return (Integer) value;
-                                    } else if (value instanceof String) {
-                                        return codeNameToApi((String) value);
-                                    }
+                    } else if (UastExpressionUtils.isNewArrayWithInitializer(v)) {
+                        UCallExpression callExpression = (UCallExpression) v;
+                        for (UExpression arg : callExpression.getValueArguments()) {
+                            if (arg instanceof ULiteralExpression) {
+                                ULiteralExpression literal = (ULiteralExpression)arg;
+                                Object value = literal.getValue();
+                                if (value instanceof Integer) {
+                                    return (Integer) value;
+                                } else if (value instanceof String) {
+                                    return codeNameToApi((String) value);
                                 }
                             }
                         }

@@ -24,11 +24,13 @@ import static com.android.SdkConstants.CLASS_V4_FRAGMENT;
 import static com.android.SdkConstants.CLS_TYPED_ARRAY;
 import static com.android.SdkConstants.R_CLASS;
 import static com.android.SdkConstants.SUPPORT_ANNOTATIONS_PREFIX;
+import static com.android.tools.lint.client.api.UastLintUtils.toAndroidReferenceViaResolve;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.ide.common.resources.ResourceUrl;
 import com.android.resources.ResourceType;
+import com.android.tools.lint.client.api.AndroidReference;
 import com.android.tools.lint.client.api.JavaEvaluator;
 import com.android.tools.lint.client.api.UastLintUtils;
 import com.intellij.psi.PsiAssignmentExpression;
@@ -60,12 +62,12 @@ import org.jetbrains.uast.UIfExpression;
 import org.jetbrains.uast.UParenthesizedExpression;
 import org.jetbrains.uast.UQualifiedExpression;
 import org.jetbrains.uast.UVariable;
-import org.jetbrains.uast.UastCallKind;
 import org.jetbrains.uast.UastContext;
 import org.jetbrains.uast.UastModifier;
 import org.jetbrains.uast.UastUtils;
 import org.jetbrains.uast.UastVariableKind;
 import org.jetbrains.uast.expressions.UReferenceExpression;
+import org.jetbrains.uast.util.UastExpressionUtils;
 
 import java.util.EnumSet;
 import java.util.List;
@@ -262,6 +264,7 @@ public class ResourceEvaluator {
         if (element == null) {
             return null;
         }
+
         if (element instanceof UIfExpression) {
             UIfExpression expression = (UIfExpression) element;
             Object known = ConstantEvaluator.evaluate(null, expression.getCondition());
@@ -273,28 +276,33 @@ public class ResourceEvaluator {
         } else if (element instanceof UParenthesizedExpression) {
             UParenthesizedExpression parenthesizedExpression = (UParenthesizedExpression) element;
             return getResource(parenthesizedExpression.getExpression());
-        } else if (element instanceof UCallExpression && mAllowDereference
-                && ((UCallExpression) element).getKind() == UastCallKind.FUNCTION_CALL) {
-            UCallExpression call = (UCallExpression) element;
-            UFunction method = call.resolve(mContext);
-            UClass containingClass = UastUtils.getContainingClass(method);
-            if (method != null && containingClass != null) {
-                String qualifiedName = containingClass.getFqName();
-                String name = call.getFunctionName();
-                if ((CLASS_RESOURCES.equals(qualifiedName)
-                        || CLASS_CONTEXT.equals(qualifiedName)
-                        || CLASS_FRAGMENT.equals(qualifiedName)
-                        || CLASS_V4_FRAGMENT.equals(qualifiedName)
-                        || CLS_TYPED_ARRAY.equals(qualifiedName))
-                        && name != null
-                        && name.startsWith("get")) {
-                    List<UExpression> args = call.getValueArguments();
-                    if (!args.isEmpty()) {
-                        return getResource(args.get(0));
+        } else if (mAllowDereference && element instanceof UQualifiedExpression) {
+            UQualifiedExpression qualifiedExpression = (UQualifiedExpression) element;
+            UExpression selector = qualifiedExpression.getSelector();
+            if ((selector instanceof UCallExpression)) {
+                UCallExpression call = (UCallExpression) selector;
+                UFunction function = call.resolve(mContext);
+                UClass containingClass = UastUtils.getContainingClass(function);
+                if (function != null && containingClass != null) {
+                    String qualifiedName = containingClass.getFqName();
+                    String name = call.getFunctionName();
+                    if ((CLASS_RESOURCES.equals(qualifiedName)
+                            || CLASS_CONTEXT.equals(qualifiedName)
+                            || CLASS_FRAGMENT.equals(qualifiedName)
+                            || CLASS_V4_FRAGMENT.equals(qualifiedName)
+                            || CLS_TYPED_ARRAY.equals(qualifiedName))
+                            && name != null
+                            && name.startsWith("get")) {
+                        List<UExpression> args = call.getValueArguments();
+                        if (!args.isEmpty()) {
+                            return getResource(args.get(0));
+                        }
                     }
                 }
             }
-        } else if (element instanceof UReferenceExpression) {
+        }
+
+        if (element instanceof UReferenceExpression) {
             ResourceUrl url = getResourceConstant(element, mContext);
             if (url != null) {
                 return url;
@@ -302,31 +310,11 @@ public class ResourceEvaluator {
             UDeclaration resolved = ((UReferenceExpression) element).resolve(mContext);
             if (resolved instanceof UVariable) {
                 UVariable variable = (UVariable) resolved;
-                UElement lastAssignment = null;
-
-                if (!variable.hasModifier(UastModifier.IMMUTABLE) &&
-                        (variable.getKind() == UastVariableKind.LOCAL_VARIABLE
-                                || variable.getKind() == UastVariableKind.VALUE_PARAMETER)) {
-                    UFunction containingFunction = UastUtils.getContainingFunction(element);
-                    if (containingFunction != null) {
-                        ConstantEvaluator.LastAssignmentFinder
-                                finder = new ConstantEvaluator.LastAssignmentFinder(
-                                variable, element, mContext, null,
-                                (variable.getKind() == UastVariableKind.VALUE_PARAMETER) ? 1 : 0);
-                        containingFunction.accept(finder);
-                        lastAssignment = finder.getLastAssignment();
-                    }
-                } else {
-                    lastAssignment = variable.getInitializer();
-                }
+                UElement lastAssignment =
+                        UastLintUtils.findLastAssignment(variable, element, mContext);
 
                 if (lastAssignment != null) {
                     return getResource(lastAssignment);
-                }
-
-                UExpression initializer = variable.getInitializer();
-                if (initializer != null) {
-                    return getResource(initializer);
                 }
 
                 return null;
@@ -373,35 +361,59 @@ public class ResourceEvaluator {
         } else if (element instanceof UParenthesizedExpression) {
             UParenthesizedExpression parenthesizedExpression = (UParenthesizedExpression) element;
             return getResourceTypes(parenthesizedExpression.getExpression());
-        } else if (element instanceof UCallExpression && mAllowDereference) {
-            UCallExpression call = (UCallExpression) element;
-            UFunction method = call.resolve(mContext);
-            UClass containingClass = UastUtils.getContainingClass(method);
-            if (method != null && containingClass != null) {
-                EnumSet<ResourceType> types = getTypesFromAnnotations(method);
-                if (types != null) {
-                    return types;
-                }
+        } else if (element instanceof UQualifiedExpression && mAllowDereference) {
+            UQualifiedExpression qualifiedExpression = (UQualifiedExpression) element;
+            UExpression selector = qualifiedExpression.getSelector();
+            if ((selector instanceof UCallExpression)) {
+                UCallExpression call = (UCallExpression) selector;
+                UFunction method = call.resolve(mContext);
+                UClass containingClass = UastUtils.getContainingClass(method);
+                if (method != null && containingClass != null) {
+                    EnumSet<ResourceType> types = getTypesFromAnnotations(method);
+                    if (types != null) {
+                        return types;
+                    }
 
-                String qualifiedName = containingClass.getFqName();
-                String name = call.getFunctionName();
-                if ((CLASS_RESOURCES.equals(qualifiedName)
-                        || CLASS_CONTEXT.equals(qualifiedName)
-                        || CLASS_FRAGMENT.equals(qualifiedName)
-                        || CLASS_V4_FRAGMENT.equals(qualifiedName)
-                        || CLS_TYPED_ARRAY.equals(qualifiedName))
-                        && name != null
-                        && name.startsWith("get")) {
-                    List<UExpression> args = call.getValueArguments();
-                    if (!args.isEmpty()) {
-                        types = getResourceTypes(args.get(0));
-                        if (types != null) {
-                            return types;
+                    String qualifiedName = containingClass.getFqName();
+                    String name = call.getFunctionName();
+                    if ((CLASS_RESOURCES.equals(qualifiedName)
+                            || CLASS_CONTEXT.equals(qualifiedName)
+                            || CLASS_FRAGMENT.equals(qualifiedName)
+                            || CLASS_V4_FRAGMENT.equals(qualifiedName)
+                            || CLS_TYPED_ARRAY.equals(qualifiedName))
+                            && name != null
+                            && name.startsWith("get")) {
+                        List<UExpression> args = call.getValueArguments();
+                        if (!args.isEmpty()) {
+                            types = getResourceTypes(args.get(0));
+                            if (types != null) {
+                                return types;
+                            }
                         }
                     }
                 }
             }
-        } //TODO
+        }
+
+        if (element instanceof UReferenceExpression) {
+            ResourceUrl url = getResourceConstant(element, mContext);
+            if (url != null) {
+                return EnumSet.of(url.type);
+            }
+
+            UDeclaration resolved = ((UReferenceExpression) element).resolve(mContext);
+            if (resolved instanceof UVariable) {
+                UVariable variable = (UVariable) resolved;
+                UElement lastAssignment =
+                        UastLintUtils.findLastAssignment(variable, element, mContext);
+
+                if (lastAssignment != null) {
+                    return getResourceTypes(lastAssignment);
+                }
+
+                return null;
+            }
+        }
 
         return null;
     }
@@ -490,37 +502,16 @@ public class ResourceEvaluator {
     public static ResourceUrl getResourceConstant(
             @NonNull UElement node,
             @NonNull UastContext context) {
-        // R.type.name
-        if (node instanceof UQualifiedExpression) {
-            UastLintUtils.AndroidReference androidReference = UastLintUtils
-                    .toAndroidReference((UQualifiedExpression) node, context);
-            if (androidReference == null) {
-                return null;
-            }
-
-            String name = androidReference.getName();
-            ResourceType type = androidReference.getType();
-            boolean isFramework = androidReference.getPackage().equals("android");
-
-            return ResourceUrl.create(type, name, isFramework, false);
-        } else if (node instanceof PsiField) {
-            PsiField field = (PsiField) node;
-            PsiClass typeClass = field.getContainingClass();
-            if (typeClass != null) {
-                PsiClass rClass = typeClass.getContainingClass();
-                if (rClass != null && R_CLASS.equals(rClass.getName())) {
-                    String name = field.getName();
-                    ResourceType type = ResourceType.getEnum(typeClass.getName());
-                    if (type != null && name != null) {
-                        String qualifiedName = rClass.getQualifiedName();
-                        boolean isFramework = qualifiedName != null
-                                && qualifiedName.startsWith(ANDROID_PKG_PREFIX);
-                        return ResourceUrl.create(type, name, isFramework, false);
-                    }
-                }
-            }
+        AndroidReference androidReference = toAndroidReferenceViaResolve(node, context);
+        if (androidReference == null) {
+            return null;
         }
-        return null;
+
+        String name = androidReference.getName();
+        ResourceType type = androidReference.getType();
+        boolean isFramework = androidReference.getPackage().equals("android");
+
+        return ResourceUrl.create(type, name, isFramework, false);
     }
 
     private static EnumSet<ResourceType> getAnyRes() {

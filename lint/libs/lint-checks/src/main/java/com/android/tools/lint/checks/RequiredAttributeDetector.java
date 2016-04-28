@@ -45,7 +45,6 @@ import static com.android.SdkConstants.VIEW_MERGE;
 import static com.android.resources.ResourceFolderType.LAYOUT;
 import static com.android.resources.ResourceFolderType.VALUES;
 import static com.android.tools.lint.detector.api.LintUtils.getLayoutName;
-import static com.android.tools.lint.detector.api.LintUtils.isNullLiteral;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
@@ -56,7 +55,6 @@ import com.android.resources.ResourceType;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Context;
 import com.android.tools.lint.detector.api.Detector;
-import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
@@ -67,10 +65,6 @@ import com.android.tools.lint.detector.api.Severity;
 import com.android.tools.lint.detector.api.XmlContext;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import com.intellij.psi.JavaElementVisitor;
-import com.intellij.psi.PsiExpression;
-import com.intellij.psi.PsiMethod;
-import com.intellij.psi.PsiMethodCallExpression;
 
 import org.jetbrains.uast.UCallExpression;
 import org.jetbrains.uast.UExpression;

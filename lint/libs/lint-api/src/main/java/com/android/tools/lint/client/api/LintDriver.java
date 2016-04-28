@@ -87,7 +87,7 @@ import org.jetbrains.uast.UElement;
 import org.jetbrains.uast.UExpression;
 import org.jetbrains.uast.ULiteralExpression;
 import org.jetbrains.uast.UNamedExpression;
-import org.jetbrains.uast.UastCallKind;
+import org.jetbrains.uast.util.UastExpressionUtils;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.AbstractInsnNode;
@@ -2838,7 +2838,7 @@ public class LintDriver {
                 }
             }
         } else if (value instanceof UCallExpression
-                && ((UCallExpression) value).getKind() == UastCallKind.ARRAY_INITIALIZER) {
+                && UastExpressionUtils.isNewArrayWithInitializer(value)) {
             UCallExpression callExpression = (UCallExpression)value;
             for (UExpression mmv : callExpression.getValueArguments()) {
                 if (isSuppressed(issue, mmv)) {

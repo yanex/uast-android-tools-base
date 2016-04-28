@@ -27,6 +27,7 @@ import com.android.ide.common.res2.AbstractResourceRepository;
 import com.android.ide.common.res2.ResourceFile;
 import com.android.ide.common.res2.ResourceItem;
 import com.android.resources.ResourceType;
+import com.android.tools.lint.client.api.AndroidReference;
 import com.android.tools.lint.client.api.LintClient;
 import com.android.tools.lint.client.api.UastLintUtils;
 import com.android.tools.lint.detector.api.Category;
@@ -49,7 +50,6 @@ import com.google.common.collect.Sets;
 import org.jetbrains.uast.UCallExpression;
 import org.jetbrains.uast.UExpression;
 import org.jetbrains.uast.UFunction;
-import org.jetbrains.uast.UQualifiedExpression;
 import org.jetbrains.uast.UastLiteralUtils;
 import org.jetbrains.uast.visitor.UastVisitor;
 import org.kxml2.io.KXmlParser;
@@ -165,15 +165,12 @@ public class LayoutInflationDetector extends LayoutDetector implements Detector.
         List<UExpression> arguments = call.getValueArguments();
 
         UExpression first = arguments.get(0);
-        if (!(first instanceof UQualifiedExpression)) {
-            return;
-        }
         UExpression second = arguments.get(1);
         if (!UastLiteralUtils.isNullLiteral(second)) {
             return;
         }
-        UastLintUtils.AndroidReference androidReference = UastLintUtils
-                .toAndroidReference(((UQualifiedExpression) first), context);
+        AndroidReference androidReference = UastLintUtils
+                .toAndroidReferenceViaResolve(first, context);
         if (androidReference == null) {
             return;
         }

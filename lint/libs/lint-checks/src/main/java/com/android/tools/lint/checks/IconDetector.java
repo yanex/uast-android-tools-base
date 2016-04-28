@@ -77,11 +77,10 @@ import org.jetbrains.uast.UElement;
 import org.jetbrains.uast.UExpression;
 import org.jetbrains.uast.UFunction;
 import org.jetbrains.uast.UQualifiedExpression;
-import org.jetbrains.uast.USimpleReferenceExpression;
-import org.jetbrains.uast.UastCallKind;
 import org.jetbrains.uast.UastContext;
 import org.jetbrains.uast.UastUtils;
 import org.jetbrains.uast.expressions.UReferenceExpression;
+import org.jetbrains.uast.util.UastExpressionUtils;
 import org.jetbrains.uast.visitor.AbstractUastVisitor;
 import org.jetbrains.uast.visitor.UastVisitor;
 import org.w3c.dom.Element;
@@ -2004,7 +2003,7 @@ public class IconDetector extends ResourceXmlDetector implements Detector.UastSc
 
         @Override
         public boolean visitCallExpression(UCallExpression node) {
-            if (node.getKind() == UastCallKind.CONSTRUCTOR_CALL) {
+            if (UastExpressionUtils.isConstructorCall(node)) {
                 visitConstructorCallExpression(node);
             }
 

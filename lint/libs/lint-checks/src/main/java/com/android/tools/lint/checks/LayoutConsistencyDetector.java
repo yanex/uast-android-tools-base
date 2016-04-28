@@ -29,7 +29,6 @@ import com.android.tools.lint.client.api.LintDriver;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Context;
 import com.android.tools.lint.detector.api.Detector;
-import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
@@ -43,10 +42,8 @@ import com.android.utils.Pair;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import com.intellij.psi.JavaElementVisitor;
-import com.intellij.psi.PsiElement;
 
-import org.jetbrains.uast.UElement;
+import org.jetbrains.uast.UExpression;
 import org.jetbrains.uast.visitor.UastVisitor;
 import org.w3c.dom.Attr;
 import org.w3c.dom.Document;
@@ -433,7 +430,7 @@ public class LayoutConsistencyDetector extends LayoutDetector implements Detecto
 
     @Override
     public void visitResourceReference(@NonNull JavaContext context, @Nullable UastVisitor visitor,
-            @NonNull UElement node, @NonNull ResourceType type, @NonNull String name,
+            @NonNull UExpression node, @NonNull ResourceType type, @NonNull String name,
             boolean isFramework) {
         if (!isFramework && type == ResourceType.ID) {
             mRelevantIds.add(name);

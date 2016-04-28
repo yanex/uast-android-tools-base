@@ -16,45 +16,85 @@
 
 package com.android.tools.lint.client.api;
 
+import static org.jetbrains.uast.UastModifier.IMMUTABLE;
+import static org.jetbrains.uast.UastModifier.STATIC;
+
 import com.android.SdkConstants;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.resources.ResourceType;
+import com.android.tools.lint.detector.api.ConstantEvaluator;
 import com.google.common.base.Joiner;
 
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.uast.*;
+import org.jetbrains.uast.java.JavaAbstractUExpression;
+import org.jetbrains.uast.java.JavaUClass;
+import org.jetbrains.uast.java.JavaUFile;
+import org.jetbrains.uast.java.JavaUVariable;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 public class UastLintUtils {
-    public static class AndroidReference {
-        private final String rPackage;
-        private final ResourceType type;
-        private final String name;
+    @Nullable
+    public static UExpression findLastAssignment(
+            @NonNull  UVariable variable,
+            @NonNull UElement call,
+            @NonNull UastContext context) {
+        UElement lastAssignment = null;
 
-        // getPackage() can be empty if not a package-qualified import (e.g. android.R.id.name).
-        @NonNull
-        public String getPackage() {
-            return rPackage;
+        if (!variable.hasModifier(UastModifier.IMMUTABLE) &&
+                (variable.getKind() == UastVariableKind.LOCAL_VARIABLE
+                        || variable.getKind() == UastVariableKind.VALUE_PARAMETER)) {
+            UFunction containingFunction = UastUtils.getContainingFunction(call);
+            if (containingFunction != null) {
+                ConstantEvaluator.LastAssignmentFinder
+                        finder = new ConstantEvaluator.LastAssignmentFinder(
+                        variable, call, context, null,
+                        (variable.getKind() == UastVariableKind.VALUE_PARAMETER) ? 1 : 0);
+                containingFunction.accept(finder);
+                lastAssignment = finder.getLastAssignment();
+            }
+        } else {
+            lastAssignment = variable.getInitializer();
         }
 
-        @NonNull
-        public ResourceType getType() {
-            return type;
+        if (lastAssignment instanceof UExpression) {
+            return (UExpression) lastAssignment;
         }
 
-        @NonNull
-        public String getName() {
-            return name;
+        return null;
+    }
+
+    @Nullable
+    public static Object findLastValue(
+            @NonNull  UVariable variable,
+            @NonNull UElement call,
+            @NonNull ConstantEvaluator evaluator) {
+        UastContext context = evaluator.getContext();
+        Object value = null;
+
+        if (!variable.hasModifier(UastModifier.IMMUTABLE) &&
+                (variable.getKind() == UastVariableKind.LOCAL_VARIABLE
+                        || variable.getKind() == UastVariableKind.VALUE_PARAMETER)) {
+            UFunction containingFunction = UastUtils.getContainingFunction(call);
+            if (containingFunction != null) {
+                ConstantEvaluator.LastAssignmentFinder
+                        finder = new ConstantEvaluator.LastAssignmentFinder(
+                        variable, call, context, evaluator, 1);
+                containingFunction.accept(finder);
+                value = finder.getCurrentValue();
+            }
+        } else {
+            UExpression initializer = variable.getInitializer();
+            if (initializer != null) {
+                value = initializer.evaluate();
+            }
         }
 
-        public AndroidReference(String rPackage, ResourceType type, String name) {
-            this.rPackage = rPackage;
-            this.type = type;
-            this.name = name;
-        }
+        return value;
     }
 
     public static List<UAnnotation> getAllAnnotations(UFunction function, UastContext context) {
@@ -77,7 +117,104 @@ public class UastLintUtils {
         return annotations;
     }
 
-    public static AndroidReference toAndroidReference(
+    @Nullable
+    public static AndroidReference toAndroidReferenceViaResolve(
+            UElement element,
+            @Nullable UastContext context) {
+        if (element instanceof UQualifiedExpression
+                && element instanceof JavaAbstractUExpression) {
+            AndroidReference ref = toAndroidReference((UQualifiedExpression) element, context);
+            if (ref != null) {
+                return ref;
+            }
+        } else if (element instanceof USimpleReferenceExpression
+                && element instanceof JavaAbstractUExpression) {
+            UExpression maybeQualified = UastUtils.getQualifiedParentOrThis((UExpression) element);
+            if (maybeQualified instanceof UQualifiedExpression) {
+                AndroidReference ref = toAndroidReference(
+                        (UQualifiedExpression) maybeQualified, context);
+                if (ref != null) {
+                    return ref;
+                }
+            }
+        }
+
+        UDeclaration declaration;
+        if (element instanceof UVariable) {
+            declaration = (UDeclaration) element;
+        } else if (element instanceof UResolvable) {
+            declaration = ((UResolvable) element).resolve(context);
+        } else {
+            return null;
+        }
+
+        // Here and below we are using types from the Java Uast implementation by intention
+        // (because Android SDK classes are written in Java).
+
+        if (!(declaration instanceof JavaUVariable)) {
+            return null;
+        }
+        UVariable variable = (UVariable) declaration;
+        if (variable.getKind() != UastVariableKind.MEMBER || !variable.getType().isInt()) {
+            return null;
+        }
+
+        if (!variable.hasModifier(STATIC) || !variable.hasModifier(IMMUTABLE)) {
+            return null;
+        }
+
+        UClass resourceTypeClass = UastUtils.getContainingClass(variable);
+        if (!(resourceTypeClass instanceof JavaUClass)) {
+            return null;
+        }
+
+        if (!resourceTypeClass.hasModifier(UastModifier.STATIC)) {
+            return null;
+        }
+
+        UClass rClass = UastUtils.getContainingClass(resourceTypeClass);
+        if (!(rClass instanceof JavaUClass) || !rClass.matchesName("R")) {
+            return null;
+        }
+
+        UElement rClassParent = rClass.getParent();
+        if (!(rClassParent instanceof JavaUFile)) {
+            return null;
+        }
+        UFile rClassFile = (UFile) rClassParent;
+        String packageName = rClassFile.getPackageFqName();
+
+        if (packageName == null || packageName.isEmpty()) {
+            return null;
+        }
+
+        String resourceTypeName = resourceTypeClass.getName();
+        ResourceType resourceType = null;
+        for (ResourceType value : ResourceType.values()) {
+            if (value.getName().equals(resourceTypeName)) {
+                resourceType = value;
+                break;
+            }
+        }
+
+        if (resourceType == null) {
+            return null;
+        }
+
+        String resourceName = variable.getName();
+
+        UExpression node;
+        if (element instanceof UExpression) {
+            node = (UExpression) element;
+        } else {
+            node = new SimpleUDeclarationsExpression(null, Collections.singletonList(element));
+        }
+
+        return new AndroidReference(node, packageName, resourceType, resourceName);
+    }
+
+    @Nullable
+    private static AndroidReference toAndroidReference(
             UQualifiedExpression expression,
             @Nullable UastContext context) {
         List<String> path = UastUtils.asQualifiedPath(expression);
@@ -126,7 +263,7 @@ public class UastLintUtils {
             return null;
         }
 
-        return new AndroidReference(rPackage, resourceType, name);
+        return new AndroidReference(expression, rPackage, resourceType, name);
     }
 
     public static boolean matchesContainingClassFqName(UElement element, String fqName) {

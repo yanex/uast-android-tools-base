@@ -33,7 +33,6 @@ import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
-import com.intellij.psi.PsiExpressionStatement;
 
 import org.jetbrains.uast.UCallExpression;
 import org.jetbrains.uast.UClass;
@@ -89,7 +88,7 @@ public class CustomViewDetector extends Detector implements Detector.UastScanner
     public void visitFunctionCallExpression(@NonNull JavaContext context,
             @Nullable UastVisitor visitor, @NonNull UCallExpression call,
             @NonNull UFunction function) {
-        if (skipParentheses(call.getParent()) instanceof PsiExpressionStatement) {
+        if (skipParentheses(call.getParent()) instanceof UExpression) {
             if (!JavaEvaluator.isMemberInSubClassOf(function, CLASS_CONTEXT, false)) {
                 return;
             }

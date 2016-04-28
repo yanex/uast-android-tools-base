@@ -51,9 +51,9 @@ import org.jetbrains.uast.UFunction;
 import org.jetbrains.uast.UQualifiedExpression;
 import org.jetbrains.uast.USimpleReferenceExpression;
 import org.jetbrains.uast.UVariable;
-import org.jetbrains.uast.UastCallKind;
 import org.jetbrains.uast.UastUtils;
 import org.jetbrains.uast.expressions.UReferenceExpression;
+import org.jetbrains.uast.util.UastExpressionUtils;
 import org.jetbrains.uast.visitor.AbstractUastVisitor;
 import org.w3c.dom.Element;
 
@@ -546,7 +546,7 @@ public class UnsafeBroadcastReceiverDetector extends Detector
 
         @Override
         public boolean visitCallExpression(@NotNull UCallExpression node) {
-            if (!mCallsGetAction && node.getKind() == UastCallKind.FUNCTION_CALL) {
+            if (!mCallsGetAction && UastExpressionUtils.isFunctionCall(node)) {
                 UFunction function = node.resolve(mContext);
                 if (function != null && function.matchesName("getAction") &&
                         getContainingClassOrEmpty(function).isSubclassOf(CLASS_INTENT, false)) {

@@ -37,7 +37,9 @@ import com.intellij.psi.PsiTypeParameter;
 import org.jetbrains.uast.UCallExpression;
 import org.jetbrains.uast.UClass;
 import org.jetbrains.uast.UElement;
+import org.jetbrains.uast.UExpression;
 import org.jetbrains.uast.UFunction;
+import org.jetbrains.uast.UQualifiedExpression;
 import org.jetbrains.uast.USimpleReferenceExpression;
 import org.jetbrains.uast.visitor.UastVisitor;
 import org.objectweb.asm.tree.AbstractInsnNode;
@@ -857,7 +859,7 @@ public abstract class Detector {
         void visitResourceReference(
                 @NonNull JavaContext context,
                 @Nullable UastVisitor visitor,
-                @NonNull UElement node,
+                @NonNull UExpression node,
                 @NonNull ResourceType type,
                 @NonNull String name,
                 boolean isFramework);
@@ -1396,7 +1398,7 @@ public abstract class Detector {
         return true;
     }
 
-    // ---- Dummy implementation to make implementing JavaPsiScanner easier: ----
+    // ---- Dummy implementation to make implementing UastScanner easier: ----
 
     @Nullable
     public List<String> getApplicableFunctionNames() {
@@ -1419,7 +1421,7 @@ public abstract class Detector {
 
     @SuppressWarnings({"UnusedParameters", "unused", "javadoc"})
     public void visitResourceReference(@NonNull JavaContext context,
-            @Nullable UastVisitor visitor, @NonNull UElement node,
+            @Nullable UastVisitor visitor, @NonNull UExpression node,
             @NonNull ResourceType type, @NonNull String name, boolean isFramework) {
     }
 

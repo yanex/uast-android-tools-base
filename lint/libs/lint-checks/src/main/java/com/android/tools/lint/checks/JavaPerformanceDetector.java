@@ -58,8 +58,8 @@ import org.jetbrains.uast.UThisExpression;
 import org.jetbrains.uast.UThrowExpression;
 import org.jetbrains.uast.UType;
 import org.jetbrains.uast.UastBinaryOperator;
-import org.jetbrains.uast.UastCallKind;
 import org.jetbrains.uast.UastUtils;
+import org.jetbrains.uast.util.UastExpressionUtils;
 import org.jetbrains.uast.visitor.AbstractUastVisitor;
 import org.jetbrains.uast.visitor.UastVisitor;
 
@@ -240,11 +240,9 @@ public class JavaPerformanceDetector extends Detector implements Detector.UastSc
 
         @Override
         public boolean visitCallExpression(UCallExpression node) {
-            UastCallKind callKind = node.getKind();
-
-            if (callKind == UastCallKind.FUNCTION_CALL) {
+            if (UastExpressionUtils.isFunctionCall(node)) {
                 visitMethodCallExpression(node);
-            } else if (callKind == UastCallKind.CONSTRUCTOR_CALL) {
+            } else if (UastExpressionUtils.isConstructorCall(node)) {
                 visitConstructorCallExpression(node);
             }
 

@@ -16,6 +16,8 @@
 
 package com.android.tools.lint.client.api;
 
+import static com.android.SdkConstants.ANDROID_PKG;
+
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.annotations.VisibleForTesting;
@@ -35,6 +37,7 @@ import com.intellij.psi.PsiManager;
 import com.intellij.psi.PsiTypeParameter;
 
 import org.jetbrains.uast.*;
+import org.jetbrains.uast.util.UastExpressionUtils;
 import org.jetbrains.uast.visitor.AbstractUastVisitor;
 import org.jetbrains.uast.visitor.UastVisitor;
 
@@ -397,7 +400,7 @@ public class UElementVisitor {
         public final Detector mDetector;
         public final UastScanner mJavaScanner;
 
-        public VisitingDetector(@NonNull Detector detector, @NonNull UastScanner javaScanner) {
+        VisitingDetector(@NonNull Detector detector, @NonNull UastScanner javaScanner) {
             mDetector = detector;
             mJavaScanner = javaScanner;
         }
@@ -955,7 +958,7 @@ public class UElementVisitor {
         private final boolean mVisitConstructors;
         private final boolean mVisitReferences;
 
-        public DelegatingPsiVisitor(JavaContext context) {
+        DelegatingPsiVisitor(JavaContext context) {
             mContext = context;
 
             mVisitMethods = !mMethodDetectors.isEmpty();
@@ -983,102 +986,32 @@ public class UElementVisitor {
             }
 
             if (mVisitResources) {
-                //TODO
-                //// R.type.name
-                //UQualifiedExpression qualified = getQualifiedResourceExpression(node);
-                //if (node.getQualifier() instanceof PsiReferenceExpression) {
-                //    PsiReferenceExpression select = (PsiReferenceExpression) node.getQualifier();
-                //    if (select.getQualifier() instanceof PsiReferenceExpression) {
-                //        PsiReferenceExpression reference = (PsiReferenceExpression) select.getQualifier();
-                //        if (R_CLASS.equals(reference.getReferenceName())) {
-                //            String typeName = select.getReferenceName();
-                //            String name = node.getReferenceName();
-                //
-                //            ResourceType type = ResourceType.getEnum(typeName);
-                //            if (type != null) {
-                //                boolean isFramework =
-                //                        reference.getQualifier() instanceof PsiReferenceExpression
-                //                                && ANDROID_PKG.equals(((PsiReferenceExpression)reference.
-                //                                getQualifier()).getReferenceName());
-                //
-                //                for (VisitingDetector v : mResourceFieldDetectors) {
-                //                    JavaPsiScanner detector = v.getJavaScanner();
-                //                    if (detector != null) {
-                //                        //noinspection ConstantConditions
-                //                        detector.visitResourceReference(mContext, v.getVisitor(),
-                //                                node, type, name, isFramework);
-                //                    }
-                //                }
-                //            }
-                //
-                //            return;
-                //        }
-                //    }
-                //}
-                //
-                //// Arbitrary packages -- android.R.type.name, foo.bar.R.type.name
-                //if (R_CLASS.equals(node.getReferenceName())) {
-                //    PsiElement parent = node.getParent();
-                //    if (parent instanceof PsiReferenceExpression) {
-                //        PsiElement grandParent = parent.getParent();
-                //        if (grandParent instanceof PsiReferenceExpression) {
-                //            PsiReferenceExpression select = (PsiReferenceExpression) grandParent;
-                //            String name = select.getReferenceName();
-                //            PsiElement typeOperand = select.getQualifier();
-                //            if (name != null && typeOperand instanceof PsiReferenceExpression) {
-                //                PsiReferenceExpression typeSelect =
-                //                        (PsiReferenceExpression) typeOperand;
-                //                String typeName = typeSelect.getReferenceName();
-                //                ResourceType type = typeName != null
-                //                        ? ResourceType.getEnum(typeName)
-                //                        : null;
-                //                if (type != null) {
-                //                    boolean isFramework = node.getQualifier().getText().equals(
-                //                            ANDROID_PKG);
-                //                    for (VisitingDetector v : mResourceFieldDetectors) {
-                //                        JavaPsiScanner detector = v.getJavaScanner();
-                //                        if (detector != null) {
-                //                            detector.visitResourceReference(mContext,
-                //                                    v.getVisitor(),
-                //                                    node, type, name, isFramework);
-                //                        }
-                //                    }
-                //                }
-                //
-                //                return;
-                //            }
-                //        }
-                //    }
-                //}
+                AndroidReference androidReference =
+                        UastLintUtils.toAndroidReferenceViaResolve(node, mContext);
+                if (androidReference != null) {
+                    for (VisitingDetector v : mResourceFieldDetectors) {
+                        UastScanner uastScanner = v.getUastScanner();
+                        if (uastScanner != null) {
+                            uastScanner.visitResourceReference(mContext, v.getVisitor(),
+                                    androidReference.node,
+                                    androidReference.getType(),
+                                    androidReference.getName(),
+                                    androidReference.getPackage().equals(ANDROID_PKG));
+                        }
+                    }
+                }
             }
 
             return super.visitSimpleReferenceExpression(node);
-        }
-
-        @Nullable
-        private UQualifiedExpression getQualifiedResourceExpression(
-                USimpleReferenceExpression node) {
-            UElement parent = node.getParent();
-            if (!(parent instanceof UQualifiedExpression)) {
-                return null;
-            }
-
-            UElement parentParent = parent.getParent();
-            if (!(parentParent instanceof UQualifiedExpression)) {
-                return null;
-            }
-
-            return (UQualifiedExpression) parentParent;
         }
 
         @Override
         public boolean visitCallExpression(UCallExpression node) {
             boolean result = super.visitCallExpression(node);
 
-            UastCallKind kind = node.getKind();
-            if (kind == UastCallKind.FUNCTION_CALL) {
+            if (UastExpressionUtils.isFunctionCall(node)) {
                 visitMethodCallExpression(node);
-            } else if (kind == UastCallKind.CONSTRUCTOR_CALL) {
+            } else if (UastExpressionUtils.isConstructorCall(node)) {
                 visitNewExpression(node);
             }
 

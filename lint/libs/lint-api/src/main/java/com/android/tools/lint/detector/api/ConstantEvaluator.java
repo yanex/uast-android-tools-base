@@ -32,6 +32,7 @@ import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.tools.lint.client.api.JavaParser.ResolvedField;
 import com.android.tools.lint.client.api.JavaParser.ResolvedNode;
+import com.android.tools.lint.client.api.UastLintUtils;
 import com.google.common.collect.Lists;
 import com.intellij.psi.JavaTokenType;
 import com.intellij.psi.PsiArrayInitializerExpression;
@@ -68,7 +69,6 @@ import org.jetbrains.uast.UCallExpression;
 import org.jetbrains.uast.UDeclaration;
 import org.jetbrains.uast.UElement;
 import org.jetbrains.uast.UExpression;
-import org.jetbrains.uast.UFunction;
 import org.jetbrains.uast.UIfExpression;
 import org.jetbrains.uast.ULiteralExpression;
 import org.jetbrains.uast.UParenthesizedExpression;
@@ -77,14 +77,10 @@ import org.jetbrains.uast.UResolvable;
 import org.jetbrains.uast.UType;
 import org.jetbrains.uast.UVariable;
 import org.jetbrains.uast.UastBinaryOperator;
-import org.jetbrains.uast.UastCallKind;
 import org.jetbrains.uast.UastContext;
-import org.jetbrains.uast.UastModifier;
 import org.jetbrains.uast.UastPrefixOperator;
-import org.jetbrains.uast.UastUtils;
-import org.jetbrains.uast.UastVariableKind;
 import org.jetbrains.uast.expressions.UReferenceExpression;
-import org.jetbrains.uast.java.JavaUastCallKinds;
+import org.jetbrains.uast.util.UastExpressionUtils;
 import org.jetbrains.uast.visitor.AbstractUastVisitor;
 
 import java.lang.reflect.Array;
@@ -141,6 +137,10 @@ public class ConstantEvaluator {
     public ConstantEvaluator allowUnknowns() {
         mAllowUnknown = true;
         return this;
+    }
+
+    public JavaContext getContext() {
+        return mContext;
     }
 
     /**
@@ -884,24 +884,7 @@ public class ConstantEvaluator {
             UDeclaration resolved = ((UReferenceExpression) node).resolve(mContext);
             if (resolved instanceof UVariable) {
                 UVariable variable = (UVariable) resolved;
-                Object value = null;
-
-                if (!variable.hasModifier(UastModifier.IMMUTABLE) &&
-                        (variable.getKind() == UastVariableKind.LOCAL_VARIABLE
-                                || variable.getKind() == UastVariableKind.VALUE_PARAMETER)) {
-                    UFunction containingFunction = UastUtils.getContainingFunction(node);
-                    if (containingFunction != null) {
-                        LastAssignmentFinder finder = new LastAssignmentFinder(
-                                variable, node, mContext, this, 1);
-                        containingFunction.accept(finder);
-                        value = finder.getCurrentValue();
-                    }
-                } else {
-                    UExpression initializer = variable.getInitializer();
-                    if (initializer != null) {
-                        value = initializer.evaluate();
-                    }
-                }
+                Object value = UastLintUtils.findLastValue(variable, node, this);
 
                 if (value != null) {
                     return value;
@@ -911,8 +894,7 @@ public class ConstantEvaluator {
                 }
                 return null;
             }
-        } else if (node instanceof UCallExpression
-                && ((UCallExpression) node).getKind() == UastCallKind.NEW_ARRAY_WITH_DIMENSIONS) {
+        } else if (UastExpressionUtils.isNewArrayWithDimensions((UExpression) node)) {
             UCallExpression call = (UCallExpression) node;
             UType arrayType = call.resolveTypeOrEmpty(mContext);
             if (arrayType instanceof UArrayType) {
@@ -922,6 +904,9 @@ public class ConstantEvaluator {
                     Object lengthObj = evaluate(call.getValueArguments().get(0));
                     if (lengthObj instanceof Number) {
                         int length = ((Number) lengthObj).intValue();
+                        if (length > 30) {
+                            length = 30;
+                        }
                         if (elementType.isBoolean()) {
                             return new boolean[length];
                         } else if (elementType.isObject()) {
@@ -946,8 +931,7 @@ public class ConstantEvaluator {
                     }
                 }
             }
-        } else if (node instanceof UCallExpression
-                && ((UCallExpression) node).getKind() == UastCallKind.NEW_ARRAY_WITH_INITIALIZER) {
+        } else if (UastExpressionUtils.isNewArrayWithInitializer(node)) {
             UCallExpression call = (UCallExpression) node;
             UType arrayType = call.resolveTypeOrEmpty(mContext);
             if (arrayType instanceof UArrayType) {
@@ -957,7 +941,12 @@ public class ConstantEvaluator {
                     int length = call.getValueArgumentCount();
                     List<Object> evaluatedArgs = new ArrayList<Object>(length);
                     for (UExpression arg : call.getValueArguments()) {
-                        evaluatedArgs.add(evaluate(arg));
+                        Object evaluatedArg = evaluate(arg);
+                        if (!mAllowUnknown && evaluatedArg == null) {
+                            // Inconclusive
+                            return null;
+                        }
+                        evaluatedArgs.add(evaluatedArg);
                     }
 
                     if (elementType.isBoolean()) {
@@ -1128,8 +1117,7 @@ public class ConstantEvaluator {
         @Override
         public boolean visitBinaryExpression(UBinaryExpression node) {
             if (node.getOperator() instanceof UastBinaryOperator.AssignOperator
-                    && mVariableLevel >= 0
-                    && mCurrentLevel <= mVariableLevel) {
+                    && mVariableLevel >= 0) {
                 UExpression leftOperand = node.getLeftOperand();
                 UastBinaryOperator operator = node.getOperator();
 
@@ -1141,6 +1129,13 @@ public class ConstantEvaluator {
                 UDeclaration resolved = ((UResolvable) leftOperand).resolve(mContext);
                 if (!mVariable.equals(resolved)) {
                     return super.visitBinaryExpression(node);
+                }
+
+                // Stop search if we see an assignment inside some conditional or loop statement.
+                if (mCurrentLevel > mVariableLevel) {
+                    mLastAssignment = null;
+                    mCurrentValue = null;
+                    mDone = true;
                 }
 
                 UExpression rightOperand = node.getRightOperand();
@@ -1777,6 +1772,40 @@ public class ConstantEvaluator {
             PsiExpression operand = castExpression.getOperand();
             if (operand != null) {
                 return isArrayLiteral(operand);
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Returns true if the node is pointing to a an array literal
+     */
+    public static boolean isArrayLiteral(@Nullable UElement node, @NonNull UastContext context) {
+        if (node instanceof UReferenceExpression) {
+            UDeclaration resolved = ((UReferenceExpression) node).resolve(context);
+            if (resolved instanceof UVariable) {
+                UVariable variable = (UVariable) resolved;
+                UExpression lastAssignment =
+                        UastLintUtils.findLastAssignment(variable, node, context);
+
+                if (lastAssignment != null) {
+                    return isArrayLiteral(lastAssignment, context);
+                }
+            }
+        } else if (UastExpressionUtils.isNewArrayWithDimensions(node)) {
+            return true;
+        } else if (UastExpressionUtils.isNewArrayWithInitializer(node)) {
+            return true;
+        } else if (node instanceof UParenthesizedExpression) {
+            UParenthesizedExpression parenthesizedExpression = (UParenthesizedExpression) node;
+            UExpression expression = parenthesizedExpression.getExpression();
+            return isArrayLiteral(expression, context);
+        } else if (UastExpressionUtils.isTypeCast(node)) {
+            UBinaryExpressionWithType castExpression = (UBinaryExpressionWithType) node;
+            UExpression operand = castExpression.getOperand();
+            if (operand != null) {
+                return isArrayLiteral(operand, context);
             }
         }
 

@@ -20,6 +20,7 @@ import static org.jetbrains.uast.UastBinaryExpressionWithTypeKind.TYPE_CAST;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
+import com.android.tools.lint.client.api.UastLintUtils;
 import com.android.tools.lint.detector.api.ConstantEvaluator;
 import com.android.tools.lint.detector.api.JavaContext;
 
@@ -170,29 +171,11 @@ public class PermissionFinder {
             UDeclaration resolved = ((UReferenceExpression) node).resolve(mContext);
             if (resolved instanceof UVariable) {
                 UVariable variable = (UVariable) resolved;
-                if (!variable.hasModifier(UastModifier.IMMUTABLE) &&
-                        (variable.getKind() == UastVariableKind.LOCAL_VARIABLE
-                                || variable.getKind() == UastVariableKind.VALUE_PARAMETER)) {
-                    UFunction containingFunction = UastUtils.getContainingFunction(node);
-                    if (containingFunction != null) {
-                        ConstantEvaluator.LastAssignmentFinder finder
-                                = new ConstantEvaluator.LastAssignmentFinder(
-                                variable, node,
-                                mContext,
-                                null,
-                                (variable.getKind() == UastVariableKind.VALUE_PARAMETER) ? 1 : 0);
-                        containingFunction.accept(finder);
+                UExpression lastAssignment =
+                        UastLintUtils.findLastAssignment(variable, node, mContext);
 
-                        UElement lastAssignment = finder.getLastAssignment();
-                        if (lastAssignment != null) {
-                            search(lastAssignment);
-                        }
-                    }
-                } else {
-                    UExpression initializer = variable.getInitializer();
-                    if (initializer != null) {
-                        search(initializer);
-                    }
+                if (lastAssignment != null ) {
+                    search(lastAssignment);
                 }
             }
             //TODO

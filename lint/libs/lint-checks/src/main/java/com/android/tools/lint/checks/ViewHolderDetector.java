@@ -39,7 +39,7 @@ import org.jetbrains.uast.UFunction;
 import org.jetbrains.uast.UIfExpression;
 import org.jetbrains.uast.UQualifiedExpression;
 import org.jetbrains.uast.USwitchExpression;
-import org.jetbrains.uast.UastCallKind;
+import org.jetbrains.uast.util.UastExpressionUtils;
 import org.jetbrains.uast.visitor.AbstractUastVisitor;
 import org.jetbrains.uast.visitor.UastVisitor;
 
@@ -131,7 +131,7 @@ public class ViewHolderDetector extends Detector implements Detector.UastScanner
 
         @Override
         public boolean visitCallExpression(UCallExpression node) {
-            if (node.getKind() == UastCallKind.FUNCTION_CALL) {
+            if (UastExpressionUtils.isFunctionCall(node)) {
                 visitFunctionCallExpression(node);
             }
             return super.visitCallExpression(node);

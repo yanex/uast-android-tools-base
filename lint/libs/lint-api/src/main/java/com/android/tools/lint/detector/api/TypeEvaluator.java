@@ -49,6 +49,7 @@ import com.intellij.psi.PsiStatement;
 import com.intellij.psi.PsiType;
 import com.intellij.psi.util.PsiTreeUtil;
 
+import org.jetbrains.uast.UCallExpression;
 import org.jetbrains.uast.UClass;
 import org.jetbrains.uast.UElement;
 import org.jetbrains.uast.UExpression;
@@ -56,6 +57,7 @@ import org.jetbrains.uast.UFunction;
 import org.jetbrains.uast.UResolvable;
 import org.jetbrains.uast.UType;
 import org.jetbrains.uast.UVariable;
+import org.jetbrains.uast.util.UastExpressionUtils;
 
 import java.util.ListIterator;
 
@@ -288,6 +290,17 @@ public class TypeEvaluator {
                 }
             }
             return ((UVariable) node).getType();
+        } else if (node instanceof UCallExpression) {
+            if (UastExpressionUtils.isFunctionCall(node)) {
+                return ((UCallExpression) node).resolveOrEmpty(context).getReturnType();
+            } else {
+                UType resolvedType = ((UCallExpression) node).resolveType(context);
+                if (resolvedType != null) {
+                    return resolvedType;
+                }
+
+                return evaluate(context, ((UCallExpression) node).resolve(context));
+            }
         } else if (node instanceof UResolvable) {
             return evaluate(context, ((UResolvable) node).resolve(context));
         } else if (node instanceof UExpression) {

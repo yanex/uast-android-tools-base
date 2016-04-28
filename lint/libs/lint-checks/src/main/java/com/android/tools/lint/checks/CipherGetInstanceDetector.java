@@ -19,7 +19,6 @@ package com.android.tools.lint.checks;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.tools.lint.detector.api.Category;
-import com.android.tools.lint.detector.api.ConstantEvaluator;
 import com.android.tools.lint.detector.api.Detector;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
@@ -27,18 +26,12 @@ import com.android.tools.lint.detector.api.JavaContext;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
 import com.google.common.collect.Sets;
-import com.intellij.psi.JavaElementVisitor;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiExpression;
-import com.intellij.psi.PsiExpressionList;
-import com.intellij.psi.PsiLiteral;
-import com.intellij.psi.PsiMethod;
-import com.intellij.psi.PsiMethodCallExpression;
 
 import org.jetbrains.uast.UCallExpression;
 import org.jetbrains.uast.UElement;
 import org.jetbrains.uast.UExpression;
 import org.jetbrains.uast.UFunction;
+import org.jetbrains.uast.ULiteralExpression;
 import org.jetbrains.uast.UastUtils;
 import org.jetbrains.uast.visitor.UastVisitor;
 
@@ -90,8 +83,8 @@ public class CipherGetInstanceDetector extends Detector implements Detector.Uast
             UExpression expression = arguments.get(0);
             Object value = expression.evaluate();
             if (value instanceof String) {
-                checkParameter(context, call, expression, (String)value,
-                        !(expression instanceof PsiLiteral));
+                checkParameter(context, call, expression, (String) value,
+                        !(expression instanceof ULiteralExpression));
             }
         }
     }
