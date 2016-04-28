@@ -24,17 +24,19 @@ import com.android.annotations.Nullable;
 import com.android.tools.lint.client.api.JavaEvaluator;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Detector;
-import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
 import com.android.tools.lint.detector.api.Location;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
-import com.intellij.psi.PsiAnonymousClass;
-import com.intellij.psi.PsiClass;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiMethod;
+
+import org.jetbrains.uast.UClass;
+import org.jetbrains.uast.UElement;
+import org.jetbrains.uast.UFunction;
+import org.jetbrains.uast.UVariable;
+import org.jetbrains.uast.UastModifier;
+import org.jetbrains.uast.UastUtils;
 
 import java.util.Arrays;
 import java.util.List;
@@ -48,7 +50,7 @@ import java.util.List;
  *   http://stackoverflow.com/questions/8058809/fragment-activity-crashes-on-screen-rotate
  * (and countless duplicates)
  */
-public class FragmentDetector extends Detector implements JavaPsiScanner {
+public class FragmentDetector extends Detector implements Detector.UastScanner {
     /** Are fragment subclasses instantiatable? */
     public static final Issue ISSUE = Issue.create(
         "ValidFragment", //$NON-NLS-1$
@@ -76,7 +78,7 @@ public class FragmentDetector extends Detector implements JavaPsiScanner {
     public FragmentDetector() {
     }
 
-    // ---- Implements JavaScanner ----
+    // ---- Implements UastScanner ----
 
     @Nullable
     @Override
@@ -85,46 +87,42 @@ public class FragmentDetector extends Detector implements JavaPsiScanner {
     }
 
     @Override
-    public void checkClass(@NonNull JavaContext context, @NonNull PsiClass node) {
-        if (node instanceof PsiAnonymousClass) {
+    public void checkClass(@NonNull JavaContext context, @NonNull UClass node) {
+        if (node.isAnonymous()) {
             String message = "Fragments should be static such that they can be re-instantiated by " +
                     "the system, and anonymous classes are not static";
-            PsiElement locationNode = JavaContext.findNameElement(node);
-            if (locationNode == null) {
-                locationNode = node;
-            }
-            context.report(ISSUE, locationNode, context.getLocation(locationNode), message);
+            UElement nameElement = node.getNameElement();
+            context.report(ISSUE, nameElement, context.getLocation(nameElement), message);
             return;
         }
 
-        JavaEvaluator evaluator = context.getEvaluator();
-        if (evaluator.isAbstract(node)) {
+        if (node.hasModifier(UastModifier.ABSTRACT)) {
             return;
         }
 
-        if (!evaluator.isPublic(node)) {
+        if (!node.getVisibility().isPublic()) {
             String message = String.format("This fragment class should be public (%1$s)",
-                    node.getQualifiedName());
-            context.report(ISSUE, node, context.getNameLocation(node), message);
+                    node.getFqName());
+            context.report(ISSUE, node, context.getLocation(node.getNameElement()), message);
             return;
         }
 
-        if (node.getContainingClass() != null && !evaluator.isStatic(node)) {
+        if (UastUtils.getContainingClass(node) != null && !node.hasModifier(UastModifier.STATIC)) {
             String message = String.format(
-                    "This fragment inner class should be static (%1$s)", node.getQualifiedName());
-            context.report(ISSUE, node, context.getNameLocation(node), message);
+                    "This fragment inner class should be static (%1$s)", node.getFqName());
+            context.report(ISSUE, node, context.getLocation(node.getNameElement()), message);
             return;
         }
 
         boolean hasDefaultConstructor = false;
         boolean hasConstructor = false;
-        for (PsiMethod constructor : node.getConstructors()) {
+        for (UFunction constructor : node.getConstructors()) {
             hasConstructor = true;
-            if (constructor.getParameterList().getParametersCount() == 0) {
-                if (evaluator.isPublic(constructor)) {
+            if (isDefaultConstructor(constructor)) {
+                if (constructor.getVisibility().isPublic()) {
                     hasDefaultConstructor = true;
                 } else {
-                    Location location = context.getNameLocation(constructor);
+                    Location location = context.getLocation(constructor.getNameElement());
                     context.report(ISSUE, constructor, location,
                             "The default constructor must be public");
                     // Also mark that we have a constructor so we don't complain again
@@ -133,7 +131,7 @@ public class FragmentDetector extends Detector implements JavaPsiScanner {
                     hasDefaultConstructor = true;
                 }
             } else {
-                Location location = context.getNameLocation(constructor);
+                Location location = context.getLocation(constructor.getNameElement());
                 // TODO: Use separate issue for this which isn't an error
                 String message = "Avoid non-default constructors in fragments: "
                         + "use a default constructor plus "
@@ -146,8 +144,22 @@ public class FragmentDetector extends Detector implements JavaPsiScanner {
             String message = String.format(
                     "This fragment should provide a default constructor (a public " +
                             "constructor with no arguments) (`%1$s`)",
-                    node.getQualifiedName());
-            context.report(ISSUE, node, context.getNameLocation(node), message);
+                    node.getFqName());
+            context.report(ISSUE, node, context.getLocation(node.getNameElement()), message);
         }
+    }
+
+    private static boolean isDefaultConstructor(UFunction constructor) {
+        if (constructor.getValueParameterCount() == 0) {
+            return true;
+        }
+
+        for (UVariable variable : constructor.getValueParameters()) {
+            if (variable.getInitializer() == null) {
+                return false;
+            }
+        }
+
+        return true;
     }
 }

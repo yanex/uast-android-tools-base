@@ -137,6 +137,17 @@ import com.intellij.psi.PsiWhiteSpace;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.PsiTreeUtil;
 
+import org.jetbrains.uast.UAnnotation;
+import org.jetbrains.uast.UCallExpression;
+import org.jetbrains.uast.UDeclaration;
+import org.jetbrains.uast.UExpression;
+import org.jetbrains.uast.ULiteralExpression;
+import org.jetbrains.uast.UNamed;
+import org.jetbrains.uast.UNamedExpression;
+import org.jetbrains.uast.UQualifiedExpression;
+import org.jetbrains.uast.UResolvable;
+import org.jetbrains.uast.USimpleReferenceExpression;
+import org.jetbrains.uast.UastCallKind;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.AbstractInsnNode;
@@ -2150,6 +2161,64 @@ public class ApiDetector extends ResourceXmlDetector
 
         return -1;
     }
+
+    /**
+     * Returns the API level for the given AST node if specified with
+     * an {@code @TargetApi} annotation.
+     *
+     * @param annotations the modifier list to check
+     * @return the target API level, or -1 if not specified
+     */
+    public static int getTargetApi(@Nullable List<UAnnotation> annotations) {
+        if (annotations == null) {
+            return -1;
+        }
+
+        for (UAnnotation annotation : annotations) {
+            String fqcn = annotation.getFqName();
+            if (fqcn != null && (fqcn.equals(FQCN_TARGET_API)
+                    || fqcn.equals(TARGET_API))) { // when missing imports
+                List<UNamedExpression> parameterList = annotation.getValueArguments();
+                for (UNamedExpression pair : parameterList) {
+                    UExpression v = pair.getExpression();
+                    if (v instanceof ULiteralExpression) {
+                        ULiteralExpression literal = (ULiteralExpression)v;
+                        Object value = literal.getValue();
+                        if (value instanceof Integer) {
+                            return (Integer) value;
+                        } else if (value instanceof String) {
+                            return codeNameToApi((String) value);
+                        }
+                    } else if (v instanceof UCallExpression) {
+                        if (((UCallExpression) v).getKind() == UastCallKind.ARRAY_INITIALIZER) {
+                            UCallExpression callExpression = (UCallExpression) v;
+                            for (UExpression arg : callExpression.getValueArguments()) {
+                                if (arg instanceof ULiteralExpression) {
+                                    ULiteralExpression literal = (ULiteralExpression)arg;
+                                    Object value = literal.getValue();
+                                    if (value instanceof Integer) {
+                                        return (Integer) value;
+                                    } else if (value instanceof String) {
+                                        return codeNameToApi((String) value);
+                                    }
+                                }
+                            }
+                        }
+                    } else if (v instanceof USimpleReferenceExpression) {
+                        return codeNameToApi(((USimpleReferenceExpression) v).getIdentifier());
+                    } else if (v instanceof UQualifiedExpression) {
+                        String identifier = ((UQualifiedExpression) v).getIdentifier();
+                        if (identifier != null) {
+                            return codeNameToApi(identifier);
+                        }
+                    }
+                }
+            }
+        }
+
+        return -1;
+    }
+
 
     public static int codeNameToApi(@NonNull String text) {
         int dotIndex = text.lastIndexOf('.');

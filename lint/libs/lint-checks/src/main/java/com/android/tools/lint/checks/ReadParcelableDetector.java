@@ -21,21 +21,19 @@ import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Detector;
-import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
-import com.android.tools.lint.detector.api.LintUtils;
-import com.android.tools.lint.detector.api.Location;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
-import com.intellij.psi.JavaElementVisitor;
-import com.intellij.psi.PsiClass;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiExpression;
-import com.intellij.psi.PsiExpressionList;
-import com.intellij.psi.PsiMethod;
-import com.intellij.psi.PsiMethodCallExpression;
+
+import org.jetbrains.uast.UCallExpression;
+import org.jetbrains.uast.UClass;
+import org.jetbrains.uast.UExpression;
+import org.jetbrains.uast.UFunction;
+import org.jetbrains.uast.UastLiteralUtils;
+import org.jetbrains.uast.UastUtils;
+import org.jetbrains.uast.visitor.UastVisitor;
 
 import java.util.Arrays;
 import java.util.List;
@@ -43,7 +41,7 @@ import java.util.List;
 /**
  * Looks for Parcelable classes that are missing a CREATOR field
  */
-public class ReadParcelableDetector extends Detector implements JavaPsiScanner {
+public class ReadParcelableDetector extends Detector implements Detector.UastScanner {
 
     /** The main issue discovered by this detector */
     public static final Issue ISSUE = Issue.create(
@@ -75,7 +73,7 @@ public class ReadParcelableDetector extends Detector implements JavaPsiScanner {
     // ---- Implements JavaScanner ----
 
     @Override
-    public List<String> getApplicableMethodNames() {
+    public List<String> getApplicableFunctionNames() {
         return Arrays.asList(
                 "readParcelable",
                 "readParcelableArray",
@@ -88,40 +86,34 @@ public class ReadParcelableDetector extends Detector implements JavaPsiScanner {
     }
 
     @Override
-    public void visitMethod(@NonNull JavaContext context, @Nullable JavaElementVisitor visitor,
-            @NonNull PsiMethodCallExpression node, @NonNull PsiMethod method) {
-        PsiClass containingClass = method.getContainingClass();
+    public void visitFunctionCallExpression(@NonNull JavaContext context,
+            @Nullable UastVisitor visitor, @NonNull UCallExpression call,
+            @NonNull UFunction function) {
+        UClass containingClass = UastUtils.getContainingClass(function);
         if (containingClass == null) {
             return;
         }
-        if (!(CLASS_PARCEL.equals(containingClass.getQualifiedName()))) {
+        if (!(CLASS_PARCEL.equals(containingClass.getFqName()))) {
             return;
         }
 
-        PsiExpressionList argumentList = node.getArgumentList();
-        PsiExpression[] expressions = argumentList.getExpressions();
-        int argumentCount = expressions.length;
+        List<UExpression> arguments = call.getValueArguments();
+        int argumentCount = arguments.size();
         if (argumentCount == 0) {
-            PsiElement name = node.getMethodExpression().getReferenceNameElement();
-            assert name != null;
             String message = String.format("Using the default class loader "
                             + "will not work if you are restoring your own classes. Consider "
                             + "using for example `%1$s(getClass().getClassLoader())` instead.",
-                    name.getText());
-            Location location = context.getRangeLocation(name, 0, name, 2);
-            context.report(ISSUE, node, location, message);
+                    call.getFunctionName());
+            context.report(ISSUE, call, context.getLocation(call), message);
         } else if (argumentCount == 1) {
-            PsiExpression parameter = expressions[0];
-            if (LintUtils.isNullLiteral(parameter)) {
+            UExpression firstArg = arguments.get(0);
+            if (UastLiteralUtils.isNullLiteral(firstArg)) {
                 String message = "Passing null here (to use the default class loader) "
                         + "will not work if you are restoring your own classes. Consider "
                         + "using for example `getClass().getClassLoader()` instead.";
-                PsiElement name = node.getMethodExpression().getReferenceNameElement();
-                assert name != null;
-
-                Location location = context.getRangeLocation(name, 0, parameter, 1);
-                context.report(ISSUE, node, location, message);
+                context.report(ISSUE, call, context.getLocation(firstArg), message);
             }
         }
+
     }
 }

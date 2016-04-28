@@ -17,15 +17,18 @@
 package com.android.tools.lint.detector.api;
 
 import com.android.tools.lint.client.api.JavaParser.TypeDescriptor;
-import com.intellij.psi.JavaRecursiveElementVisitor;
-import com.intellij.psi.PsiExpression;
-import com.intellij.psi.PsiJavaFile;
-import com.intellij.psi.PsiLocalVariable;
+import com.intellij.psi.PsiClassType;
 import com.intellij.psi.PsiType;
 
 import junit.framework.TestCase;
 
 import org.intellij.lang.annotations.Language;
+import org.jetbrains.uast.UArrayType;
+import org.jetbrains.uast.UExpression;
+import org.jetbrains.uast.UFile;
+import org.jetbrains.uast.UType;
+import org.jetbrains.uast.UVariable;
+import org.jetbrains.uast.visitor.AbstractUastVisitor;
 
 import java.io.File;
 import java.util.concurrent.atomic.AtomicReference;
@@ -41,38 +44,30 @@ public class TypeEvaluatorTest extends TestCase {
             final String targetVariable) {
         JavaContext context = LintUtilsTest.parsePsi(source, new File("src/test/pkg/Test.java"));
         assertNotNull(context);
-        PsiJavaFile javaFile = context.getJavaFile();
-        assertNotNull(javaFile);
+        UFile ufile = context.getUFile();
+        assertNotNull(ufile);
 
         // Find the expression
-        final AtomicReference<PsiExpression> reference = new AtomicReference<PsiExpression>();
-        javaFile.accept(new JavaRecursiveElementVisitor() {
+        final AtomicReference<UExpression> reference = new AtomicReference<UExpression>();
+        ufile.accept(new AbstractUastVisitor() {
             @Override
-            public void visitLocalVariable(PsiLocalVariable variable) {
-                super.visitLocalVariable(variable);
-                String name = variable.getName();
-                if (name != null && name.equals(targetVariable)) {
+            public boolean visitVariable(UVariable variable) {
+                if (variable.matchesName(targetVariable)) {
                     reference.set(variable.getInitializer());
                 }
+
+                return super.visitVariable(variable);
             }
         });
-        PsiExpression expression = reference.get();
-        PsiType actual = TypeEvaluator.evaluate(context, expression);
+        UExpression expression = reference.get();
+        UType actual = TypeEvaluator.evaluate(context, expression);
         if (expected == null) {
             assertNull(actual);
         } else {
             assertNotNull("Couldn't compute type for " + source + ", expected " + expected,
                     actual);
 
-            if (expected instanceof PsiType) {
-                assertEquals(expected, actual);
-            } else {
-                String expectedString = expected.toString();
-                if (expectedString.startsWith("class ")) {
-                    expectedString = expectedString.substring("class ".length());
-                }
-                assertEquals(expectedString, actual.getCanonicalText());
-            }
+            assertTrue(checkUastType(expected, actual));
         }
     }
 
@@ -115,6 +110,38 @@ public class TypeEvaluatorTest extends TestCase {
                 expectedString = expectedString.substring("class ".length());
             }
             assertEquals(expectedString, actual.getName());
+        }
+    }
+
+    private static boolean checkUastType(Object expectedJavaType, UType actualType) {
+        if (expectedJavaType == String.class) {
+            return actualType.isString();
+        } else if (expectedJavaType == Boolean.TYPE) {
+            return actualType.isBoolean();
+        } else if (expectedJavaType == Integer.TYPE) {
+            return actualType.isInt();
+        } else if (expectedJavaType == Long.TYPE) {
+            return actualType.isLong();
+        } else if (expectedJavaType == Short.TYPE) {
+            return actualType.isShort();
+        } else if (expectedJavaType == Byte.TYPE) {
+            return actualType.isByte();
+        } else if (expectedJavaType == Boolean.TYPE) {
+            return actualType.isByte();
+        } else if (expectedJavaType == Float.TYPE) {
+            return actualType.isFloat();
+        } else if (expectedJavaType == Double.TYPE) {
+            return actualType.isDouble();
+        } else if (expectedJavaType == Character.TYPE) {
+            return actualType.isChar();
+        } else if (expectedJavaType == Object.class) {
+            return actualType.isObject();
+        } else if (expectedJavaType instanceof PsiClassType) {
+            return actualType.matchesFqName(((PsiClassType) expectedJavaType).getClassName());
+        } else if (expectedJavaType instanceof Class<?>){
+            return actualType.matchesFqName(((Class) expectedJavaType).getCanonicalName());
+        } else {
+            return false;
         }
     }
 

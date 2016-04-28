@@ -16,7 +16,9 @@
 
 package com.android.tools.lint.detector.api;
 
+import com.intellij.psi.JavaPsiFacade;
 import com.intellij.psi.JavaRecursiveElementVisitor;
+import com.intellij.psi.PsiElementFactory;
 import com.intellij.psi.PsiExpression;
 import com.intellij.psi.PsiJavaFile;
 import com.intellij.psi.PsiLocalVariable;
@@ -24,6 +26,10 @@ import com.intellij.psi.PsiLocalVariable;
 import junit.framework.TestCase;
 
 import org.intellij.lang.annotations.Language;
+import org.jetbrains.uast.UExpression;
+import org.jetbrains.uast.UFile;
+import org.jetbrains.uast.UVariable;
+import org.jetbrains.uast.visitor.AbstractUastVisitor;
 
 import java.io.File;
 import java.util.Arrays;
@@ -40,27 +46,27 @@ public class ConstantEvaluatorTest extends TestCase {
             final String targetVariable) {
         JavaContext context = LintUtilsTest.parsePsi(source, new File("src/test/pkg/Test.java"));
         assertNotNull(context);
-        PsiJavaFile javaFile = context.getJavaFile();
-        assertNotNull(javaFile);
+        UFile ufile = context.getUFile();
+        assertNotNull(ufile);
 
         // Find the expression
-        final AtomicReference<PsiExpression> reference = new AtomicReference<PsiExpression>();
-        javaFile.accept(new JavaRecursiveElementVisitor() {
+        final AtomicReference<UExpression> reference = new AtomicReference<UExpression>();
+        ufile.accept(new AbstractUastVisitor() {
             @Override
-            public void visitLocalVariable(PsiLocalVariable variable) {
-                super.visitLocalVariable(variable);
-                String name = variable.getName();
-                if (name != null && name.equals(targetVariable)) {
+            public boolean visitVariable(UVariable variable) {
+                if (variable.matchesName(targetVariable)) {
                     reference.set(variable.getInitializer());
                 }
+
+                return super.visitVariable(variable);
             }
         });
-        PsiExpression expression = reference.get();
+        UExpression expression = reference.get();
         Object actual = ConstantEvaluator.evaluate(context, expression);
         if (expected == null) {
             assertNull(actual);
         } else {
-            assertNotNull("Couldn't compute value for " + source + ", expected " + expected,
+            assertNotNull("Couldn't compute value for " + expression + ", expected " + expected,
                     actual);
             assertEquals(expected.getClass(), actual.getClass());
             if (expected instanceof Object[] && actual instanceof Object[]) {

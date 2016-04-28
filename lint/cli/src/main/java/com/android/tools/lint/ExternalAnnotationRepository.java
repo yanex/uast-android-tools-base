@@ -24,7 +24,6 @@ import static com.android.SdkConstants.VALUE_FALSE;
 import static com.android.SdkConstants.VALUE_TRUE;
 import static com.android.tools.lint.checks.SupportAnnotationDetector.CHECK_RESULT_ANNOTATION;
 import static com.android.tools.lint.checks.SupportAnnotationDetector.PERMISSION_ANNOTATION;
-import static com.android.tools.lint.psi.EcjPsiManager.getTypeName;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
@@ -43,11 +42,6 @@ import com.android.tools.lint.client.api.JavaParser.TypeDescriptor;
 import com.android.tools.lint.client.api.LintClient;
 import com.android.tools.lint.detector.api.LintUtils;
 import com.android.tools.lint.detector.api.Project;
-import com.android.tools.lint.psi.ExternalPsiAnnotation;
-import com.android.tools.lint.psi.ExternalPsiAnnotationLiteralMemberValue;
-import com.android.tools.lint.psi.ExternalPsiArrayInitializerMemberValue;
-import com.android.tools.lint.psi.ExternalPsiNameValuePair;
-import com.android.tools.lint.psi.ExternalPsiReferenceExpressionMemberValue;
 import com.android.utils.XmlUtils;
 import com.google.common.base.Charsets;
 import com.google.common.base.Splitter;
@@ -917,13 +911,15 @@ public class ExternalAnnotationRepository {
 
         @Nullable
         private ClassInfo findClass(@NonNull ReferenceBinding cls) {
-            return cls.compoundName != null ? mClassMap.get(getTypeName(cls.compoundName)) : null;
+            return null;
+            //return cls.compoundName != null ? mClassMap.get(getTypeName(cls.compoundName)) : null;
         }
 
         @Nullable
         private ClassInfo findPackage(@NonNull PackageBinding pkg) {
-            return pkg.compoundName != null
-                    ? mClassMap.get(getTypeName(pkg.compoundName) + ".package-info") : null;
+            return null;
+            //return pkg.compoundName != null
+            //        ? mClassMap.get(getTypeName(pkg.compoundName) + ".package-info") : null;
         }
 
         @Nullable
@@ -1251,7 +1247,9 @@ public class ExternalAnnotationRepository {
             List<PsiAnnotation> result = Lists.newArrayListWithExpectedSize(children.size());
             for (Element annotationElement : children) {
                 PsiAnnotation annotation = createAnnotation(annotationElement);
-                result.add(annotation);
+                if (annotation != null) {
+                    result.add(annotation);
+                }
             }
 
             return result;
@@ -1324,98 +1322,99 @@ public class ExternalAnnotationRepository {
             }
         }
 
-        private Map<String, ExternalPsiAnnotation> mMarkerAnnotations = Maps.newHashMapWithExpectedSize(30);
+        //private Map<String, ExternalPsiAnnotation> mMarkerAnnotations = Maps.newHashMapWithExpectedSize(30);
 
         private PsiAnnotation createAnnotation(Element annotationElement) {
-            String tagName = annotationElement.getTagName();
-            assert tagName.equals("annotation") : tagName;
-            String name = annotationElement.getAttribute(ATTR_NAME);
-            assert name != null && !name.isEmpty();
-
-            ExternalPsiAnnotation annotation = mMarkerAnnotations.get(name);
-            if (annotation != null) {
-                return annotation;
-            }
-
-            annotation = new ExternalPsiAnnotation(name);
-
-            List<Element> valueElements = getChildren(annotationElement);
-            if (valueElements.isEmpty()
-                    // Permission annotations are sometimes used as marker annotations (on
-                    // parameters) but that shouldn't let us conclude that any future
-                    // permission annotations are. Ditto for @CheckResult, where we sometimes
-                    // specify a suggestion.
-                    && !name.startsWith(PERMISSION_ANNOTATION)
-                    && !name.equals(CHECK_RESULT_ANNOTATION)) {
-                mMarkerAnnotations.put(name, annotation);
-                return annotation;
-            }
-
-            List<PsiNameValuePair> pairs = Lists.newArrayListWithCapacity(valueElements.size());
-            for (Element valueElement : valueElements) {
-                if (valueElement.getTagName().equals("val")) {
-                    String valueName = valueElement.getAttribute(ATTR_NAME);
-                    String valueString = valueElement.getAttribute("val");
-                    if (!valueName.isEmpty() && !valueString.isEmpty()) {
-                        // Guess type
-                        if (valueString.equals(VALUE_TRUE)) {
-                            pairs.add(new ExternalPsiNameValuePair(valueName, valueString,
-                                    new ExternalPsiAnnotationLiteralMemberValue(true)));
-                        } else if (valueString.equals(VALUE_FALSE)) {
-                            pairs.add(new ExternalPsiNameValuePair(valueName, valueString,
-                                    new ExternalPsiAnnotationLiteralMemberValue(false)));
-                        } else if (valueString.startsWith("\"") && valueString.endsWith("\"") &&
-                                valueString.length() >= 2) {
-                            String s = valueString.substring(1, valueString.length() - 1);
-                            pairs.add(new ExternalPsiNameValuePair(valueName, valueString,
-                                    new ExternalPsiAnnotationLiteralMemberValue(s)));
-                        } else if (valueString.startsWith("{") && valueString.endsWith("}")) {
-                            // Array of values
-                            String listString = valueString.substring(1, valueString.length() - 1);
-                            // We don't know the types, but we'll assume that they're either
-                            // all strings (the most common array type in our annotations), or
-                            // field references. We can't know the types of the fields; it's
-                            // not part of the annotation metadata. We'll place them in an Object[]
-                            // for now.
-                            Splitter splitter = Splitter.on(',').omitEmptyStrings().trimResults();
-                            List<PsiAnnotationMemberValue> result = Lists.newArrayList();
-                            for (String reference : splitter.split(listString)) {
-                                if (reference.startsWith("\"")) {
-                                    String s = reference.substring(1, reference.length() - 1);
-                                    result.add(new ExternalPsiAnnotationLiteralMemberValue(s));
-                                } else {
-                                    result.add(new ExternalPsiReferenceExpressionMemberValue(reference));
-                                }
-                            }
-                            PsiAnnotationMemberValue[] initializers = result.toArray(
-                                    PsiAnnotationMemberValue.EMPTY_ARRAY);
-                            pairs.add(new ExternalPsiNameValuePair(valueName, valueString,
-                                    new ExternalPsiArrayInitializerMemberValue(initializers)));
-
-                            // We don't know the actual type of these fields; we'll assume they're
-                            // a special form of
-                        } else if (Character.isDigit(valueString.charAt(0))) {
-                            Object value;
-                            try {
-                                if (valueString.contains(".")) {
-                                    value = Double.parseDouble(valueString);
-                                } else {
-                                    value = Long.parseLong(valueString);
-                                }
-                            } catch (NumberFormatException nufe) {
-                                value = valueString;
-                            }
-                            pairs.add(new ExternalPsiNameValuePair(valueName, valueString,
-                                    new ExternalPsiAnnotationLiteralMemberValue(value)));
-                        } else {
-                            pairs.add(new ExternalPsiNameValuePair(valueName, valueString,
-                                    new ExternalPsiAnnotationLiteralMemberValue(valueString)));
-                        }
-                    }
-                }
-            }
-            annotation.setAttributes(pairs.toArray(PsiNameValuePair.EMPTY_ARRAY));
-            return annotation;
+            return null;
+            //String tagName = annotationElement.getTagName();
+            //assert tagName.equals("annotation") : tagName;
+            //String name = annotationElement.getAttribute(ATTR_NAME);
+            //assert name != null && !name.isEmpty();
+            //
+            //ExternalPsiAnnotation annotation = mMarkerAnnotations.get(name);
+            //if (annotation != null) {
+            //    return annotation;
+            //}
+            //
+            //annotation = new ExternalPsiAnnotation(name);
+            //
+            //List<Element> valueElements = getChildren(annotationElement);
+            //if (valueElements.isEmpty()
+            //        // Permission annotations are sometimes used as marker annotations (on
+            //        // parameters) but that shouldn't let us conclude that any future
+            //        // permission annotations are. Ditto for @CheckResult, where we sometimes
+            //        // specify a suggestion.
+            //        && !name.startsWith(PERMISSION_ANNOTATION)
+            //        && !name.equals(CHECK_RESULT_ANNOTATION)) {
+            //    mMarkerAnnotations.put(name, annotation);
+            //    return annotation;
+            //}
+            //
+            //List<PsiNameValuePair> pairs = Lists.newArrayListWithCapacity(valueElements.size());
+            //for (Element valueElement : valueElements) {
+            //    if (valueElement.getTagName().equals("val")) {
+            //        String valueName = valueElement.getAttribute(ATTR_NAME);
+            //        String valueString = valueElement.getAttribute("val");
+            //        if (!valueName.isEmpty() && !valueString.isEmpty()) {
+            //            // Guess type
+            //            if (valueString.equals(VALUE_TRUE)) {
+            //                pairs.add(new ExternalPsiNameValuePair(valueName, valueString,
+            //                        new ExternalPsiAnnotationLiteralMemberValue(true)));
+            //            } else if (valueString.equals(VALUE_FALSE)) {
+            //                pairs.add(new ExternalPsiNameValuePair(valueName, valueString,
+            //                        new ExternalPsiAnnotationLiteralMemberValue(false)));
+            //            } else if (valueString.startsWith("\"") && valueString.endsWith("\"") &&
+            //                    valueString.length() >= 2) {
+            //                String s = valueString.substring(1, valueString.length() - 1);
+            //                pairs.add(new ExternalPsiNameValuePair(valueName, valueString,
+            //                        new ExternalPsiAnnotationLiteralMemberValue(s)));
+            //            } else if (valueString.startsWith("{") && valueString.endsWith("}")) {
+            //                // Array of values
+            //                String listString = valueString.substring(1, valueString.length() - 1);
+            //                // We don't know the types, but we'll assume that they're either
+            //                // all strings (the most common array type in our annotations), or
+            //                // field references. We can't know the types of the fields; it's
+            //                // not part of the annotation metadata. We'll place them in an Object[]
+            //                // for now.
+            //                Splitter splitter = Splitter.on(',').omitEmptyStrings().trimResults();
+            //                List<PsiAnnotationMemberValue> result = Lists.newArrayList();
+            //                for (String reference : splitter.split(listString)) {
+            //                    if (reference.startsWith("\"")) {
+            //                        String s = reference.substring(1, reference.length() - 1);
+            //                        result.add(new ExternalPsiAnnotationLiteralMemberValue(s));
+            //                    } else {
+            //                        result.add(new ExternalPsiReferenceExpressionMemberValue(reference));
+            //                    }
+            //                }
+            //                PsiAnnotationMemberValue[] initializers = result.toArray(
+            //                        PsiAnnotationMemberValue.EMPTY_ARRAY);
+            //                pairs.add(new ExternalPsiNameValuePair(valueName, valueString,
+            //                        new ExternalPsiArrayInitializerMemberValue(initializers)));
+            //
+            //                // We don't know the actual type of these fields; we'll assume they're
+            //                // a special form of
+            //            } else if (Character.isDigit(valueString.charAt(0))) {
+            //                Object value;
+            //                try {
+            //                    if (valueString.contains(".")) {
+            //                        value = Double.parseDouble(valueString);
+            //                    } else {
+            //                        value = Long.parseLong(valueString);
+            //                    }
+            //                } catch (NumberFormatException nufe) {
+            //                    value = valueString;
+            //                }
+            //                pairs.add(new ExternalPsiNameValuePair(valueName, valueString,
+            //                        new ExternalPsiAnnotationLiteralMemberValue(value)));
+            //            } else {
+            //                pairs.add(new ExternalPsiNameValuePair(valueName, valueString,
+            //                        new ExternalPsiAnnotationLiteralMemberValue(valueString)));
+            //            }
+            //        }
+            //    }
+            //}
+            //annotation.setAttributes(pairs.toArray(PsiNameValuePair.EMPTY_ARRAY));
+            //return annotation;
         }
     }
 

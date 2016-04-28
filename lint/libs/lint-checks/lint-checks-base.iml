@@ -11,5 +11,7 @@
     <orderEntry type="inheritedJdk" />
     <orderEntry type="module" module-name="sdk-common-base" />
     <orderEntry type="module" module-name="lint-api-base" />
+    <orderEntry type="library" name="uast-java" level="project" />
+    <orderEntry type="library" name="intellij-core" level="project" />
   </component>
 </module>

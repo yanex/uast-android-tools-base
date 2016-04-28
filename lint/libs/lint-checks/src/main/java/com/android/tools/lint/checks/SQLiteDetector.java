@@ -16,24 +16,22 @@
 
 package com.android.tools.lint.checks;
 
-import static com.android.tools.lint.client.api.JavaParser.TYPE_STRING;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.android.tools.lint.client.api.JavaEvaluator;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.ConstantEvaluator;
 import com.android.tools.lint.detector.api.Detector;
-import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
-import com.intellij.psi.JavaElementVisitor;
-import com.intellij.psi.PsiExpression;
-import com.intellij.psi.PsiMethod;
-import com.intellij.psi.PsiMethodCallExpression;
+
+import org.jetbrains.uast.UCallExpression;
+import org.jetbrains.uast.UExpression;
+import org.jetbrains.uast.UFunction;
+import org.jetbrains.uast.visitor.UastVisitor;
 
 import java.util.Collections;
 import java.util.List;
@@ -41,7 +39,7 @@ import java.util.List;
 /**
  * Detector which looks for problems related to SQLite usage
  */
-public class SQLiteDetector extends Detector implements JavaPsiScanner {
+public class SQLiteDetector extends Detector implements Detector.UastScanner {
     private static final Implementation IMPLEMENTATION = new Implementation(
           SQLiteDetector.class, Scope.JAVA_FILE_SCOPE);
 
@@ -74,30 +72,30 @@ public class SQLiteDetector extends Detector implements JavaPsiScanner {
             IMPLEMENTATION)
             .addMoreInfo("https://www.sqlite.org/datatype3.html"); //$NON-NLS-1$
 
-    // ---- Implements Detector.JavaScanner ----
+    // ---- Implements Detector.UastScanner ----
 
     @Override
-    public List<String> getApplicableMethodNames() {
+    public List<String> getApplicableFunctionNames() {
         return Collections.singletonList("execSQL"); //$NON-NLS-1$
     }
 
     @Override
-    public void visitMethod(@NonNull JavaContext context, @Nullable JavaElementVisitor visitor,
-            @NonNull PsiMethodCallExpression node, @NonNull PsiMethod method) {
-        JavaEvaluator evaluator = context.getEvaluator();
-        if (!evaluator.isMemberInClass(method, "android.database.sqlite.SQLiteDatabase")) {
+    public void visitFunctionCallExpression(@NonNull JavaContext context,
+            @Nullable UastVisitor visitor, @NonNull UCallExpression call,
+            @NonNull UFunction function) {
+        if (!function.matchesNameWithContaining("android.database.sqlite.SQLiteDatabase", "execSQL")) {
             return;
         }
 
-        int parameterCount = evaluator.getParameterCount(method);
-        if (parameterCount == 0) {
+        if (function.getValueParameterCount() == 0) {
             return;
         }
-        if (!evaluator.parameterHasType(method, 0, TYPE_STRING)) {
+        if (!function.getValueParameters().get(0).getType().isString()) {
             return;
         }
+
         // Try to resolve the String and look for STRING keys
-        PsiExpression argument = node.getArgumentList().getExpressions()[0];
+        UExpression argument = call.getValueArguments().get(0);
         String sql = ConstantEvaluator.evaluateString(context, argument, true);
         if (sql != null && (sql.startsWith("CREATE TABLE") || sql.startsWith("ALTER TABLE"))
                 && sql.matches(".*\\bSTRING\\b.*")) {
@@ -105,7 +103,7 @@ public class SQLiteDetector extends Detector implements JavaPsiScanner {
                     + "(STRING is a numeric type and its value can be adjusted; for example, "
                     + "strings that look like integers can drop leading zeroes. See issue "
                     + "explanation for details.)";
-            context.report(ISSUE, node, context.getLocation(node), message);
+            context.report(ISSUE, call, context.getLocation(call), message);
         }
     }
 }

@@ -1132,7 +1132,7 @@ public class StringFormatDetector extends ResourceXmlDetector implements JavaPsi
         }
 
         PsiExpression argument = args[argIndex];
-        ResourceUrl resource = ResourceEvaluator.getResource(context.getEvaluator(), argument);
+        ResourceUrl resource = null; //TODO //ResourceEvaluator.getResource(context.getEvaluator(), argument);
         if (resource == null || resource.framework || resource.type != ResourceType.STRING) {
             return;
         }

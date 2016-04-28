@@ -16,25 +16,26 @@
 
 package com.android.tools.lint.checks;
 
+import static org.jetbrains.uast.UastBinaryExpressionWithTypeKind.TYPE_CAST;
+
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Detector;
-import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
-import com.android.tools.lint.detector.api.LintUtils;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
 import com.google.common.collect.Maps;
-import com.intellij.psi.JavaElementVisitor;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiExpression;
-import com.intellij.psi.PsiMethod;
-import com.intellij.psi.PsiMethodCallExpression;
-import com.intellij.psi.PsiReferenceExpression;
-import com.intellij.psi.PsiTypeCastExpression;
+
+import org.jetbrains.uast.UBinaryExpressionWithType;
+import org.jetbrains.uast.UCallExpression;
+import org.jetbrains.uast.UElement;
+import org.jetbrains.uast.UExpression;
+import org.jetbrains.uast.UFunction;
+import org.jetbrains.uast.UastUtils;
+import org.jetbrains.uast.visitor.UastVisitor;
 
 import java.util.Collections;
 import java.util.List;
@@ -43,7 +44,7 @@ import java.util.Map;
 /**
  * Detector looking for casts on th result of context.getSystemService which are suspect
  */
-public class ServiceCastDetector extends Detector implements JavaPsiScanner {
+public class ServiceCastDetector extends Detector implements Detector.UastScanner {
     /** The main issue discovered by this detector */
     public static final Issue ISSUE = Issue.create(
             "ServiceCast", //$NON-NLS-1$
@@ -64,43 +65,46 @@ public class ServiceCastDetector extends Detector implements JavaPsiScanner {
     public ServiceCastDetector() {
     }
 
-    // ---- Implements JavaScanner ----
+    // ---- Implements UastScanner ----
 
     @Override
-    public List<String> getApplicableMethodNames() {
+    public List<String> getApplicableFunctionNames() {
         return Collections.singletonList("getSystemService"); //$NON-NLS-1$
     }
 
     @Override
-    public void visitMethod(@NonNull JavaContext context, @Nullable JavaElementVisitor visitor,
-            @NonNull PsiMethodCallExpression call, @NonNull PsiMethod method) {
-        PsiElement parent = LintUtils.skipParentheses(call.getParent());
-        if (parent instanceof PsiTypeCastExpression) {
-            PsiTypeCastExpression cast = (PsiTypeCastExpression) parent;
+    public void visitFunctionCallExpression(@NonNull JavaContext context,
+            @Nullable UastVisitor visitor, @NonNull UCallExpression call,
+            @NonNull UFunction function) {
+        UExpression receiver = UastUtils.getQualifiedParentOrThis(call);
+        UElement parent = receiver.getParent();
+        if (!(parent instanceof UBinaryExpressionWithType)
+                || ((UBinaryExpressionWithType)parent).getOperationKind() != TYPE_CAST) {
+            return;
+        }
 
-            PsiExpression[] args = call.getArgumentList().getExpressions();
-            if (args.length == 1 && args[0] instanceof PsiReferenceExpression) {
-                String name = ((PsiReferenceExpression)args[0]).getReferenceName();
-                String expectedClass = getExpectedType(name);
-                if (expectedClass != null && cast.getCastType() != null) {
-                    String castType = cast.getCastType().getType().getCanonicalText();
-                    if (castType.indexOf('.') == -1) {
-                        expectedClass = stripPackage(expectedClass);
-                    }
-                    if (!castType.equals(expectedClass)) {
-                        // It's okay to mix and match
-                        // android.content.ClipboardManager and android.text.ClipboardManager
-                        if (isClipboard(castType) && isClipboard(expectedClass)) {
-                            return;
-                        }
-
-                        String message = String.format(
-                                "Suspicious cast to `%1$s` for a `%2$s`: expected `%3$s`",
-                                stripPackage(castType), name, stripPackage(expectedClass));
-                        context.report(ISSUE, call, context.getLocation(cast), message);
-                    }
+        UBinaryExpressionWithType cast = (UBinaryExpressionWithType) parent;
+        List<UExpression> args = call.getValueArguments();
+        if (args.size() == 1) {
+            String name = stripPackage(args.get(0).renderString());
+            String expectedClass = getExpectedType(name);
+            if (expectedClass != null) {
+                String castType = cast.getType().getName();
+                if (castType.indexOf('.') == -1) {
+                    expectedClass = stripPackage(expectedClass);
                 }
+                if (!castType.equals(expectedClass)) {
+                    // It's okay to mix and match
+                    // android.content.ClipboardManager and android.text.ClipboardManager
+                    if (isClipboard(castType) && isClipboard(expectedClass)) {
+                        return;
+                    }
 
+                    String message = String.format(
+                            "Suspicious cast to `%1$s` for a `%2$s`: expected `%3$s`",
+                            stripPackage(castType), name, stripPackage(expectedClass));
+                    context.report(ISSUE, call, context.getLocation(cast), message);
+                }
             }
         }
     }

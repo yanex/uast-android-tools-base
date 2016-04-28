@@ -25,23 +25,30 @@ import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.annotations.VisibleForTesting;
 import com.android.sdklib.IAndroidTarget;
+import com.android.tools.lint.client.api.JavaEvaluator;
 import com.android.tools.lint.client.api.JavaParser;
 import com.android.tools.lint.client.api.LintClient;
+import com.android.tools.lint.client.api.LintLanguageExtension;
 import com.android.tools.lint.detector.api.ClassContext;
 import com.android.tools.lint.detector.api.DefaultPosition;
 import com.android.tools.lint.detector.api.JavaContext;
 import com.android.tools.lint.detector.api.Location;
 import com.android.tools.lint.detector.api.Project;
 import com.android.tools.lint.detector.api.Scope;
-import com.android.tools.lint.psi.EcjPsiBuilder;
-import com.android.tools.lint.psi.EcjPsiJavaEvaluator;
-import com.android.tools.lint.psi.EcjPsiManager;
 import com.google.common.base.Splitter;
 import com.google.common.collect.Lists;
 import com.google.common.collect.MapMaker;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.intellij.core.JavaCoreProjectEnvironment;
+import com.intellij.mock.MockProject;
+import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.vfs.StandardFileSystems;
+import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.vfs.VirtualFileSystem;
+import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiJavaFile;
+import com.intellij.psi.PsiManager;
 
 import org.eclipse.jdt.core.compiler.CategorizedProblem;
 import org.eclipse.jdt.core.compiler.IProblem;
@@ -120,6 +127,7 @@ import org.eclipse.jdt.internal.compiler.parser.Parser;
 import org.eclipse.jdt.internal.compiler.problem.AbortCompilation;
 import org.eclipse.jdt.internal.compiler.problem.DefaultProblemFactory;
 import org.eclipse.jdt.internal.compiler.problem.ProblemReporter;
+import org.jetbrains.uast.UastLanguagePlugin;
 
 import java.io.File;
 import java.lang.reflect.Modifier;
@@ -167,7 +175,7 @@ public class EcjParser extends JavaParser {
     @Deprecated private Map<String, TypeDeclaration> mTypeUnits;
     private Parser mParser;
     protected EcjResult mEcjResult;
-    private EcjPsiJavaEvaluator mResolver;
+    private LintCoreEnvironment mLintCoreEnvironment;
 
     public EcjParser(@NonNull LintCliClient client, @Nullable Project project) {
         mClient = client;
@@ -177,8 +185,8 @@ public class EcjParser extends JavaParser {
 
     @NonNull
     @Override
-    public EcjPsiJavaEvaluator getEvaluator() {
-        return mResolver;
+    public JavaEvaluator getEvaluator() {
+        return null;
     }
 
     /**
@@ -245,28 +253,78 @@ public class EcjParser extends JavaParser {
         return mParser;
     }
 
+    @NonNull
+    @Override
+    public List<UastLanguagePlugin> getLanguagePlugins() {
+        return LintLanguageExtension.getPlugins(getIdeaProject());
+    }
+
+    @Nullable
+    @Override
+    public MockProject getIdeaProject() {
+        LintCoreEnvironment lintCoreEnvironment = mLintCoreEnvironment;
+        if (lintCoreEnvironment == null) {
+            return null;
+        }
+
+        return lintCoreEnvironment.getProjectEnvironment().getProject();
+    }
+
     @Override
     public void prepareJavaParse(@NonNull final List<JavaContext> contexts) {
         if (mProject == null || contexts.isEmpty()) {
             return;
         }
 
+        LintCoreEnvironment lintEnvironment = new LintCoreEnvironment(Disposer.newDisposable());
+        mLintCoreEnvironment = lintEnvironment;
+
+        JavaCoreProjectEnvironment projectEnvironment = lintEnvironment.getProjectEnvironment();
+        VirtualFileSystem vfs = StandardFileSystems.local();
+        MockProject ideaProject = projectEnvironment.getProject();
+        ideaProject.setBaseDir(vfs.findFileByPath(mProject.getDir().getAbsolutePath()));
+
         List<EcjSourceFile> sources = Lists.newArrayListWithExpectedSize(contexts.size());
         mSourceUnits = Maps.newHashMapWithExpectedSize(sources.size());
+
         for (JavaContext context : contexts) {
             String contents = context.getContents();
             if (contents == null) {
                 continue;
             }
             File file = context.file;
+
             EcjSourceFile unit = new EcjSourceFile(contents, file);
             sources.add(unit);
             mSourceUnits.put(file, unit);
         }
+
+        for (File sourceDirectory : mClient.getJavaSourceFolders(mProject)) {
+            if (!sourceDirectory.isDirectory()) {
+                continue;
+            }
+            VirtualFile virtualFile = vfs.findFileByPath(sourceDirectory.getAbsolutePath());
+            if (virtualFile != null) {
+                projectEnvironment.addSourcesToClasspath(virtualFile);
+            }
+        }
+
         List<String> classPath = computeClassPath(contexts);
+
+        for (String path : classPath) {
+            File file = new File(path);
+            if (file.exists() && file.isFile() && file.getName().toLowerCase().endsWith(".jar")) {
+                projectEnvironment.addJarToClassPath(file);
+            } else {
+                VirtualFile virtualFile = vfs.findFileByPath(path);
+                if (virtualFile != null && virtualFile.isDirectory()) {
+                    projectEnvironment.addSourcesToClasspath(virtualFile);
+                }
+            }
+        }
+
         try {
             mEcjResult = parse(createCompilerOptions(), sources, classPath, mClient);
-            mResolver = new EcjPsiJavaEvaluator(mEcjResult.mPsiManager);
 
             if (DEBUG_DUMP_PARSE_ERRORS) {
                 for (CompilationUnitDeclaration unit : mEcjResult.getCompilationUnits()) {
@@ -304,7 +362,6 @@ public class EcjParser extends JavaParser {
         @Nullable private Map<ICompilationUnit, PsiJavaFile> mPsiMap;
         @Nullable private Map<CompilationUnitDeclaration, EcjSourceFile> mUnitToSource;
         @Nullable Map<Binding, CompilationUnitDeclaration> mBindingToUnit;
-        private EcjPsiManager mPsiManager;
 
         public EcjResult(@Nullable INameEnvironment nameEnvironment,
                 @Nullable LookupEnvironment lookupEnvironment,
@@ -317,10 +374,6 @@ public class EcjParser extends JavaParser {
         @Nullable
         public LookupEnvironment getLookupEnvironment() {
             return mLookupEnvironment;
-        }
-
-        public void setPsiManager(@NonNull EcjPsiManager psiManager) {
-            mPsiManager = psiManager;
         }
 
         @Nullable
@@ -340,14 +393,6 @@ public class EcjParser extends JavaParser {
                         .concurrencyLevel(1)
                         .makeMap();
 
-            }
-
-            CompilationUnitDeclaration unit = getCompilationUnit(sourceUnit);
-            if (unit != null) {
-                PsiJavaFile file = EcjPsiBuilder.create(mPsiManager, unit, sourceUnit);
-                assert mPsiMap != null;
-                mPsiMap.put(sourceUnit, file);
-                return file;
             }
 
             return null;
@@ -529,8 +574,6 @@ public class EcjParser extends JavaParser {
 
         LookupEnvironment lookupEnvironment = compiler != null ? compiler.lookupEnvironment : null;
         EcjResult ecjResult = new EcjResult(environment, lookupEnvironment, outputMap);
-        EcjPsiManager psiManager = new EcjPsiManager(client, ecjResult, options.sourceLevel);
-        ecjResult.setPsiManager(psiManager);
         return ecjResult;
     }
 
@@ -806,6 +849,12 @@ public class EcjParser extends JavaParser {
         if (mEcjResult != null) {
             mEcjResult.dispose();
             mEcjResult = null;
+        }
+
+        LintCoreEnvironment lintCoreEnvironment = mLintCoreEnvironment;
+        mLintCoreEnvironment = null;
+        if (lintCoreEnvironment != null) {
+            lintCoreEnvironment.dispose();
         }
 
         mSourceUnits = null;

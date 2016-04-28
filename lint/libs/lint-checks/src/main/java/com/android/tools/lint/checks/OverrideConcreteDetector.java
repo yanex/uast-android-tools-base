@@ -18,18 +18,18 @@ package com.android.tools.lint.checks;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.android.tools.lint.client.api.JavaEvaluator;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Detector;
-import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
-import com.intellij.psi.PsiClass;
-import com.intellij.psi.PsiMethod;
-import com.intellij.psi.util.PsiTreeUtil;
+
+import org.jetbrains.uast.UClass;
+import org.jetbrains.uast.UFunction;
+import org.jetbrains.uast.UastModifier;
+import org.jetbrains.uast.UastUtils;
 
 import java.util.Collections;
 import java.util.List;
@@ -39,7 +39,7 @@ import java.util.List;
  * in one or more earlier API levels that are still targeted by the minSdkVersion
  * of this project.
  */
-public class OverrideConcreteDetector extends Detector implements JavaPsiScanner {
+public class OverrideConcreteDetector extends Detector implements Detector.UastScanner {
     /** Are previously-abstract methods all overridden? */
     public static final Issue ISSUE = Issue.create(
         "OverrideAbstract", //$NON-NLS-1$
@@ -80,7 +80,7 @@ public class OverrideConcreteDetector extends Detector implements JavaPsiScanner
     public OverrideConcreteDetector() {
     }
 
-    // ---- Implements JavaScanner ----
+    // ---- Implements UastScanner ----
 
     @Nullable
     @Override
@@ -89,9 +89,8 @@ public class OverrideConcreteDetector extends Detector implements JavaPsiScanner
     }
 
     @Override
-    public void checkClass(@NonNull JavaContext context, @NonNull PsiClass declaration) {
-        JavaEvaluator evaluator = context.getEvaluator();
-        if (evaluator.isAbstract(declaration)) {
+    public void checkClass(@NonNull JavaContext context, @NonNull UClass declaration) {
+        if (declaration.hasModifier(UastModifier.ABSTRACT)) {
             return;
         }
 
@@ -100,29 +99,37 @@ public class OverrideConcreteDetector extends Detector implements JavaPsiScanner
             return;
         }
 
-        String[] methodNames = {ON_NOTIFICATION_POSTED, ON_NOTIFICATION_REMOVED};
-        for (String methodName : methodNames) {
+        String[] functionNames = {ON_NOTIFICATION_POSTED, ON_NOTIFICATION_REMOVED};
+
+        List<UFunction> allFunctions = UastUtils.getAllFunctions(declaration, context);
+        for (String functionName : functionNames) {
             boolean found = false;
-            for (PsiMethod method : declaration.findMethodsByName(methodName, true)) {
+
+            for (UFunction function : allFunctions) {
+                if (!function.matchesName(functionName)) {
+                    continue;
+                }
+
                 // Make sure it's not the base method, but that it's been defined
                 // in a subclass, concretely
-                PsiClass containingClass = method.getContainingClass();
+                UClass containingClass = UastUtils.getContainingClass(function);
                 if (containingClass == null) {
                     continue;
                 }
-                if (NOTIFICATION_LISTENER_SERVICE_FQN.equals(containingClass.getQualifiedName())) {
+                if (NOTIFICATION_LISTENER_SERVICE_FQN.equals(containingClass.getFqName())) {
                     continue;
                 }
                 // Make sure subclass isn't just defining another abstract definition
                 // of the method
-                if (evaluator.isAbstract(method)) {
+                if (function.hasModifier(UastModifier.ABSTRACT)) {
                     continue;
                 }
                 // Make sure it has the exact right signature
-                if (method.getParameterList().getParametersCount() != 1) {
+                if (function.getValueParameterCount() != 1) {
                     continue; // Wrong signature
                 }
-                if (!evaluator.parameterHasType(method, 0, STATUS_BAR_NOTIFICATION_FQN)) {
+                if (!function.getValueParameters().get(0)
+                        .getType().matchesFqName(STATUS_BAR_NOTIFICATION_FQN)) {
                     continue;
                 }
 
@@ -133,23 +140,24 @@ public class OverrideConcreteDetector extends Detector implements JavaPsiScanner
             if (!found) {
                 String message = String.format(
                         "Must override `%1$s.%2$s(%3$s)`: Method was abstract until %4$d, and your `minSdkVersion` is %5$d",
-                        NOTIFICATION_LISTENER_SERVICE_FQN, methodName,
+                        NOTIFICATION_LISTENER_SERVICE_FQN, functionName,
                         STATUS_BAR_NOTIFICATION_FQN, CONCRETE_IN, minSdk);
-                context.report(ISSUE, declaration, context.getNameLocation(declaration), message);
+                context.report(ISSUE, declaration,
+                        context.getLocation(declaration.getNameElement()), message);
                 break;
             }
 
         }
     }
 
-    private static int getTargetApi(@NonNull PsiClass node) {
+    private static int getTargetApi(@NonNull UClass node) {
         while (node != null) {
-            int targetApi = ApiDetector.getTargetApi(node.getModifierList());
+            int targetApi = ApiDetector.getTargetApi(node.getAnnotations());
             if (targetApi != -1) {
                 return targetApi;
             }
 
-            node = PsiTreeUtil.getParentOfType(node, PsiClass.class, true);
+            node = UastUtils.getParentOfType(node, UClass.class, true);
         }
 
         return -1;

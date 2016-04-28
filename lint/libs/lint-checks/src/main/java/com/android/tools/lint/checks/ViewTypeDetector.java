@@ -211,8 +211,7 @@ public class ViewTypeDetector extends ResourceXmlDetector implements JavaPsiScan
             PsiExpression[] args = call.getArgumentList().getExpressions();
             if (args.length == 1) {
                 PsiExpression first = args[0];
-                ResourceUrl resourceUrl = ResourceEvaluator.getResource(context.getEvaluator(),
-                        first);
+                ResourceUrl resourceUrl = null; //TODO ResourceEvaluator.getResource(context.getEvaluator(), first);
                 if (resourceUrl != null && resourceUrl.type == ResourceType.ID &&
                         !resourceUrl.framework) {
                     String id = resourceUrl.name;

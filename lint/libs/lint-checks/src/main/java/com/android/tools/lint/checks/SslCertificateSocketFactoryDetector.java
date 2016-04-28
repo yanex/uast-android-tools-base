@@ -18,26 +18,27 @@ package com.android.tools.lint.checks;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
+import com.android.tools.lint.client.api.JavaEvaluator;
+import com.android.tools.lint.client.api.UastLintUtils;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Detector;
-import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
-import com.intellij.psi.JavaElementVisitor;
-import com.intellij.psi.PsiClassType;
-import com.intellij.psi.PsiExpression;
-import com.intellij.psi.PsiMethod;
-import com.intellij.psi.PsiMethodCallExpression;
-import com.intellij.psi.PsiType;
+
+import org.jetbrains.uast.UCallExpression;
+import org.jetbrains.uast.UExpression;
+import org.jetbrains.uast.UFunction;
+import org.jetbrains.uast.UType;
+import org.jetbrains.uast.visitor.UastVisitor;
 
 import java.util.Arrays;
 import java.util.List;
 
 public class SslCertificateSocketFactoryDetector extends Detector
-        implements JavaPsiScanner {
+        implements Detector.UastScanner {
 
     private static final Implementation IMPLEMENTATION_JAVA = new Implementation(
             SslCertificateSocketFactoryDetector.class,
@@ -80,41 +81,41 @@ public class SslCertificateSocketFactoryDetector extends Detector
     private static final String SSL_CERTIFICATE_SOCKET_FACTORY_CLASS =
             "android.net.SSLCertificateSocketFactory";
 
-    // ---- Implements JavaScanner ----
+    // ---- Implements UastScanner ----
 
     @Override
-    public List<String> getApplicableMethodNames() {
+    public List<String> getApplicableFunctionNames() {
         // Detect calls to potentially insecure SSLCertificateSocketFactory methods
         return Arrays.asList("createSocket", "getInsecure");
     }
 
     @Override
-    public void visitMethod(@NonNull JavaContext context, @Nullable JavaElementVisitor visitor,
-            @NonNull PsiMethodCallExpression call, @NonNull PsiMethod method) {
-        if (context.getEvaluator().isMemberInSubClassOf(method,
+    public void visitFunctionCallExpression(@NonNull JavaContext context,
+            @Nullable UastVisitor visitor, @NonNull UCallExpression call,
+            @NonNull UFunction function) {
+        if (JavaEvaluator.isMemberInSubClassOf(function,
                 SSL_CERTIFICATE_SOCKET_FACTORY_CLASS, false)) {
-            String methodName = method.getName();
-            if ("createSocket".equals(methodName)) {
-                PsiExpression[] args = call.getArgumentList().getExpressions();
-                if (args.length > 0) {
-                    PsiType type = args[0].getType();
+            if (function.matchesName("createSocket")) {
+                List<UExpression> args = call.getValueArguments();
+                if (!args.isEmpty()) {
+                    UType type = args.get(0).getExpressionType();
                     if (type != null
-                            && (INET_ADDRESS_CLASS.equals(type.getCanonicalText())
-                            || context.getEvaluator().extendsClass(((PsiClassType)type).resolve(),
-                            INET_ADDRESS_CLASS, false))) {
+                            && ((type.matchesFqName(INET_ADDRESS_CLASS))
+                            || type.resolveOrEmpty(context).isSubclassOf(INET_ADDRESS_CLASS, false))) {
                         context.report(CREATE_SOCKET, call, context.getLocation(call),
                                 "Use of `SSLCertificateSocketFactory.createSocket()` " +
-                                "with an InetAddress parameter can cause insecure " +
-                                "network traffic due to trusting arbitrary hostnames in " +
-                                "TLS/SSL certificates presented by peers");
+                                        "with an InetAddress parameter can cause insecure " +
+                                        "network traffic due to trusting arbitrary hostnames in " +
+                                        "TLS/SSL certificates presented by peers");
                     }
                 }
-            } else if ("getInsecure".equals(methodName)) {
+            } else if (function.matchesName("getInsecure")) {
                 context.report(GET_INSECURE, call, context.getLocation(call),
                         "Use of `SSLCertificateSocketFactory.getInsecure()` can cause " +
-                        "insecure network traffic due to trusting arbitrary TLS/SSL " +
-                        "certificates presented by peers");
+                                "insecure network traffic due to trusting arbitrary TLS/SSL " +
+                                "certificates presented by peers");
             }
         }
+
     }
 }

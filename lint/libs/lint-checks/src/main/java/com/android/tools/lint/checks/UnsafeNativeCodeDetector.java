@@ -25,7 +25,6 @@ import com.android.tools.lint.client.api.JavaEvaluator;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Context;
 import com.android.tools.lint.detector.api.Detector;
-import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
@@ -35,9 +34,10 @@ import com.android.tools.lint.detector.api.Project;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
 import com.android.tools.lint.detector.api.Speed;
-import com.intellij.psi.JavaElementVisitor;
-import com.intellij.psi.PsiMethod;
-import com.intellij.psi.PsiMethodCallExpression;
+
+import org.jetbrains.uast.UCallExpression;
+import org.jetbrains.uast.UFunction;
+import org.jetbrains.uast.visitor.UastVisitor;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -46,7 +46,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
-public class UnsafeNativeCodeDetector extends Detector implements JavaPsiScanner {
+public class UnsafeNativeCodeDetector extends Detector implements Detector.UastScanner {
 
     private static final Implementation IMPLEMENTATION = new Implementation(
             UnsafeNativeCodeDetector.class,
@@ -98,24 +98,25 @@ public class UnsafeNativeCodeDetector extends Detector implements JavaPsiScanner
     // ---- Implements Detector.JavaScanner ----
 
     @Override
-    public List<String> getApplicableMethodNames() {
+    public List<String> getApplicableFunctionNames() {
         // Identify calls to Runtime.load() and System.load()
         return Collections.singletonList("load");
     }
 
     @Override
-    public void visitMethod(@NonNull JavaContext context, @Nullable JavaElementVisitor visitor,
-            @NonNull PsiMethodCallExpression call, @NonNull PsiMethod method) {
+    public void visitFunctionCallExpression(@NonNull JavaContext context,
+            @Nullable UastVisitor visitor, @NonNull UCallExpression call,
+            @NonNull UFunction function) {
         // Report calls to Runtime.load() and System.load()
-        if ("load".equals(method.getName())) {
-            JavaEvaluator evaluator = context.getEvaluator();
-            if (evaluator.isMemberInSubClassOf(method, RUNTIME_CLASS, false) ||
-                    evaluator.isMemberInSubClassOf(method, SYSTEM_CLASS, false)) {
+        if (function.matchesName("load")) {
+            if (JavaEvaluator.isMemberInSubClassOf(function, RUNTIME_CLASS, false) ||
+                    JavaEvaluator.isMemberInSubClassOf(function, SYSTEM_CLASS, false)) {
                 context.report(LOAD, call, context.getLocation(call),
                         "Dynamically loading code using `load` is risky, please use " +
                                 "`loadLibrary` instead when possible");
             }
         }
+
     }
 
     // ---- Look for code in resource and asset directories ----

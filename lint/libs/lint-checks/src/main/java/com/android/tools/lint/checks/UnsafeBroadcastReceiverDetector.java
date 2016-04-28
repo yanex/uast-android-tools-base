@@ -24,14 +24,14 @@ import static com.android.SdkConstants.CLASS_CONTEXT;
 import static com.android.SdkConstants.CLASS_INTENT;
 import static com.android.SdkConstants.TAG_INTENT_FILTER;
 import static com.android.SdkConstants.TAG_RECEIVER;
+import static org.jetbrains.uast.UastUtils.getContainingClassOrEmpty;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.annotations.VisibleForTesting;
-import com.android.tools.lint.client.api.JavaEvaluator;
+import com.android.tools.lint.client.api.UastLintUtils;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Detector;
-import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
 import com.android.tools.lint.detector.api.Detector.XmlScanner;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
@@ -42,14 +42,19 @@ import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
 import com.android.tools.lint.detector.api.XmlContext;
 import com.google.common.collect.Sets;
-import com.intellij.psi.JavaRecursiveElementVisitor;
-import com.intellij.psi.PsiClass;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiMethod;
-import com.intellij.psi.PsiMethodCallExpression;
-import com.intellij.psi.PsiParameter;
-import com.intellij.psi.PsiReferenceExpression;
 
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.uast.UCallExpression;
+import org.jetbrains.uast.UClass;
+import org.jetbrains.uast.UElement;
+import org.jetbrains.uast.UFunction;
+import org.jetbrains.uast.UQualifiedExpression;
+import org.jetbrains.uast.USimpleReferenceExpression;
+import org.jetbrains.uast.UVariable;
+import org.jetbrains.uast.UastCallKind;
+import org.jetbrains.uast.UastUtils;
+import org.jetbrains.uast.expressions.UReferenceExpression;
+import org.jetbrains.uast.visitor.AbstractUastVisitor;
 import org.w3c.dom.Element;
 
 import java.util.Collection;
@@ -60,7 +65,7 @@ import java.util.List;
 import java.util.Set;
 
 public class UnsafeBroadcastReceiverDetector extends Detector
-        implements JavaPsiScanner, XmlScanner {
+        implements Detector.UastScanner, XmlScanner {
 
     /* Description of check implementations:
      *
@@ -448,29 +453,29 @@ public class UnsafeBroadcastReceiverDetector extends Detector
     }
 
     @Override
-    public void checkClass(@NonNull JavaContext context, @NonNull PsiClass declaration) {
-        String name = declaration.getName();
-        if (name == null) {
-            // anonymous classes can't be the ones referenced in the manifest
+    public void checkClass(@NonNull JavaContext context, @NonNull UClass declaration) {
+        // anonymous classes can't be the ones referenced in the manifest
+        if (declaration.isAnonymous()) {
             return;
         }
-        String qualifiedName = declaration.getQualifiedName();
+
+        String qualifiedName = declaration.getFqName();
         if (qualifiedName == null) {
             return;
         }
         if (!mReceiversWithProtectedBroadcastIntentFilter.contains(qualifiedName)) {
             return;
         }
-        JavaEvaluator evaluator = context.getEvaluator();
-        for (PsiMethod method : declaration.findMethodsByName("onReceive", false)) {
-            if (evaluator.parametersMatch(method, CLASS_CONTEXT, CLASS_INTENT)) {
+        for (UFunction method : UastUtils.findFunctions(declaration, "onReceive")) {
+            if (UastLintUtils.parametersMatch(method, CLASS_CONTEXT, CLASS_INTENT)) {
                 checkOnReceive(context, method);
             }
         }
+
     }
 
     private static void checkOnReceive(@NonNull JavaContext context,
-            @NonNull PsiMethod method) {
+            @NonNull UFunction method) {
         // Search for call to getAction but also search for references to aload_2,
         // which indicates that the method is making use of the received intent in
         // some way.
@@ -480,8 +485,13 @@ public class UnsafeBroadcastReceiverDetector extends Detector
         // method that might be performing the getAction check, so we warn that the
         // finding may be a false positive. (An alternative option would be to not
         // report a finding at all in this case.)
-        PsiParameter parameter = method.getParameterList().getParameters()[1];
-        OnReceiveVisitor visitor = new OnReceiveVisitor(context.getEvaluator(), parameter);
+
+        if (method.getValueParameterCount() < 2) {
+            return;
+        }
+
+        UVariable parameter = method.getValueParameters().get(1);
+        OnReceiveVisitor visitor = new OnReceiveVisitor(context, parameter);
         method.accept(visitor);
         if (!visitor.getCallsGetAction()) {
             String report;
@@ -510,19 +520,19 @@ public class UnsafeBroadcastReceiverDetector extends Detector
                         "to another method that checked the action string. If so, this " +
                         "finding can safely be ignored.";
             }
-            Location location = context.getNameLocation(method);
+            Location location = context.getLocation(method.getNameElement());
             context.report(ACTION_STRING, method, location, report);
         }
     }
 
-    private static class OnReceiveVisitor extends JavaRecursiveElementVisitor {
-        @NonNull private final JavaEvaluator mEvaluator;
-        @Nullable private final PsiParameter mParameter;
+    private static class OnReceiveVisitor extends AbstractUastVisitor {
+        @NonNull private final JavaContext mContext;
+        @Nullable private final UVariable mParameter;
         private boolean mCallsGetAction;
         private boolean mUsesIntent;
 
-        public OnReceiveVisitor(@NonNull JavaEvaluator context, @Nullable PsiParameter parameter) {
-            mEvaluator = context;
+        public OnReceiveVisitor(@NonNull JavaContext context, @Nullable UVariable parameter) {
+            mContext = context;
             mParameter = parameter;
         }
 
@@ -535,27 +545,37 @@ public class UnsafeBroadcastReceiverDetector extends Detector
         }
 
         @Override
-        public void visitMethodCallExpression(PsiMethodCallExpression node) {
-            if (!mCallsGetAction) {
-                PsiMethod method = node.resolveMethod();
-                if (method != null && "getAction".equals(method.getName()) &&
-                        mEvaluator.isMemberInSubClassOf(method, CLASS_INTENT, false)) {
+        public boolean visitCallExpression(@NotNull UCallExpression node) {
+            if (!mCallsGetAction && node.getKind() == UastCallKind.FUNCTION_CALL) {
+                UFunction function = node.resolve(mContext);
+                if (function != null && function.matchesName("getAction") &&
+                        getContainingClassOrEmpty(function).isSubclassOf(CLASS_INTENT, false)) {
                     mCallsGetAction = true;
                 }
             }
 
-            super.visitMethodCallExpression(node);
+            return super.visitCallExpression(node);
         }
 
         @Override
-        public void visitReferenceExpression(PsiReferenceExpression expression) {
+        public boolean visitSimpleReferenceExpression(@NotNull USimpleReferenceExpression node) {
+            checkSimpleReferenceExpression(node);
+            return super.visitSimpleReferenceExpression(node);
+        }
+
+        @Override
+        public boolean visitQualifiedExpression(@NotNull UQualifiedExpression node) {
+            checkSimpleReferenceExpression(node);
+            return super.visitQualifiedExpression(node);
+        }
+
+        private void checkSimpleReferenceExpression(@NotNull UReferenceExpression node) {
             if (!mUsesIntent && mParameter != null) {
-                PsiElement resolved = expression.resolve();
+                UElement resolved = node.resolve(mContext);
                 if (mParameter.equals(resolved)) {
                     mUsesIntent = true;
                 }
             }
-            super.visitReferenceExpression(expression);
         }
     }
 }

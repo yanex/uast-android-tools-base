@@ -26,12 +26,12 @@ import com.android.tools.lint.detector.api.JavaContext;
 import com.android.tools.lint.detector.api.Location;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
-import com.intellij.psi.JavaElementVisitor;
-import com.intellij.psi.PsiMethod;
-import com.intellij.psi.PsiNewExpression;
-import com.intellij.psi.PsiParameter;
-import com.intellij.psi.PsiParameterList;
-import com.intellij.psi.PsiType;
+
+import org.jetbrains.uast.UCallExpression;
+import org.jetbrains.uast.UFunction;
+import org.jetbrains.uast.UType;
+import org.jetbrains.uast.UVariable;
+import org.jetbrains.uast.visitor.UastVisitor;
 
 import java.util.Collections;
 import java.util.List;
@@ -39,7 +39,7 @@ import java.util.List;
 /**
  * Checks for errors related to Date Formats
  */
-public class DateFormatDetector extends Detector implements Detector.JavaPsiScanner {
+public class DateFormatDetector extends Detector implements Detector.UastScanner {
 
     private static final Implementation IMPLEMENTATION = new Implementation(
             DateFormatDetector.class,
@@ -75,7 +75,7 @@ public class DateFormatDetector extends Detector implements Detector.JavaPsiScan
     public DateFormatDetector() {
     }
 
-    // ---- Implements JavaScanner ----
+    // ---- Implements UastScanner ----
 
     @Nullable
     @Override
@@ -84,24 +84,24 @@ public class DateFormatDetector extends Detector implements Detector.JavaPsiScan
     }
 
     @Override
-    public void visitConstructor(@NonNull JavaContext context, @Nullable JavaElementVisitor visitor,
-            @NonNull PsiNewExpression node, @NonNull PsiMethod constructor) {
+    public void visitConstructor(@NonNull JavaContext context, @Nullable UastVisitor visitor,
+            @NonNull UCallExpression node, @NonNull UFunction constructor) {
         if (!specifiesLocale(constructor)) {
             Location location = context.getLocation(node);
             String message =
                     "To get local formatting use `getDateInstance()`, `getDateTimeInstance()`, " +
-                    "or `getTimeInstance()`, or use `new SimpleDateFormat(String template, " +
-                    "Locale locale)` with for example `Locale.US` for ASCII dates.";
+                            "or `getTimeInstance()`, or use `new SimpleDateFormat(String template, " +
+                            "Locale locale)` with for example `Locale.US` for ASCII dates.";
             context.report(DATE_FORMAT, node, location, message);
         }
+
     }
 
-    private static boolean specifiesLocale(@NonNull PsiMethod method) {
-        PsiParameterList parameterList = method.getParameterList();
-        PsiParameter[] parameters = parameterList.getParameters();
-        for (PsiParameter parameter : parameters) {
-            PsiType type = parameter.getType();
-            if (type.getCanonicalText().equals(LOCALE_CLS)) {
+    private static boolean specifiesLocale(@NonNull UFunction method) {
+        List<UVariable> parameters = method.getValueParameters();
+        for (UVariable parameter : parameters) {
+            UType type = parameter.getType();
+            if (type.matchesFqName(LOCALE_CLS)) {
                     return true;
             }
         }

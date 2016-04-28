@@ -49,6 +49,14 @@ import com.intellij.psi.PsiStatement;
 import com.intellij.psi.PsiType;
 import com.intellij.psi.util.PsiTreeUtil;
 
+import org.jetbrains.uast.UClass;
+import org.jetbrains.uast.UElement;
+import org.jetbrains.uast.UExpression;
+import org.jetbrains.uast.UFunction;
+import org.jetbrains.uast.UResolvable;
+import org.jetbrains.uast.UType;
+import org.jetbrains.uast.UVariable;
+
 import java.util.ListIterator;
 
 import lombok.ast.BinaryExpression;
@@ -256,6 +264,34 @@ public class TypeEvaluator {
         if (resolved instanceof ResolvedVariable) {
             ResolvedVariable variable = (ResolvedVariable) resolved;
             return variable.getType();
+        }
+
+        return null;
+    }
+
+    @Nullable
+    public static UType evaluate(@NonNull JavaContext context, @Nullable UElement node) {
+        if (node == null) {
+            return null;
+        }
+
+        if (node instanceof UFunction) {
+            return ((UFunction) node).getReturnType();
+        } else if (node instanceof UClass) {
+            return ((UClass) node).getDefaultType();
+        } else if (node instanceof UVariable) {
+            UExpression initializer = ((UVariable) node).getInitializer();
+            if (initializer != null) {
+                UType type = evaluate(context, initializer);
+                if (type != null) {
+                    return type;
+                }
+            }
+            return ((UVariable) node).getType();
+        } else if (node instanceof UResolvable) {
+            return evaluate(context, ((UResolvable) node).resolve(context));
+        } else if (node instanceof UExpression) {
+            return ((UExpression) node).getExpressionType();
         }
 
         return null;

@@ -18,25 +18,22 @@ package com.android.tools.lint.checks;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.android.tools.lint.client.api.JavaEvaluator;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Detector;
-import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
 import com.android.tools.lint.detector.api.Location;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
-import com.android.tools.lint.detector.api.TypeEvaluator;
-import com.intellij.psi.JavaElementVisitor;
-import com.intellij.psi.PsiClass;
-import com.intellij.psi.PsiClassType;
-import com.intellij.psi.PsiExpression;
-import com.intellij.psi.PsiMethod;
-import com.intellij.psi.PsiMethodCallExpression;
-import com.intellij.psi.PsiModifierList;
-import com.intellij.psi.PsiType;
+
+import org.jetbrains.uast.UCallExpression;
+import org.jetbrains.uast.UClass;
+import org.jetbrains.uast.UExpression;
+import org.jetbrains.uast.UFunction;
+import org.jetbrains.uast.UType;
+import org.jetbrains.uast.UastContext;
+import org.jetbrains.uast.visitor.UastVisitor;
 
 import java.util.Collections;
 import java.util.List;
@@ -45,7 +42,7 @@ import java.util.List;
  * Looks for addJavascriptInterface calls on interfaces have been properly annotated
  * with {@code @JavaScriptInterface}
  */
-public class JavaScriptInterfaceDetector extends Detector implements JavaPsiScanner {
+public class JavaScriptInterfaceDetector extends Detector implements Detector.UastScanner {
     /** The main issue discovered by this detector */
     public static final Issue ISSUE = Issue.create(
             "JavascriptInterface", //$NON-NLS-1$
@@ -71,67 +68,64 @@ public class JavaScriptInterfaceDetector extends Detector implements JavaPsiScan
     public JavaScriptInterfaceDetector() {
     }
 
-    // ---- Implements JavaScanner ----
+    // ---- Implements UastScanner ----
 
     @Nullable
     @Override
-    public List<String> getApplicableMethodNames() {
+    public List<String> getApplicableFunctionNames() {
         return Collections.singletonList(ADD_JAVASCRIPT_INTERFACE);
     }
 
     @Override
-    public void visitMethod(@NonNull JavaContext context, @Nullable JavaElementVisitor visitor,
-            @NonNull PsiMethodCallExpression call, @NonNull PsiMethod method) {
+    public void visitFunctionCallExpression(@NonNull JavaContext context,
+            @Nullable UastVisitor visitor, @NonNull UCallExpression call,
+            @NonNull UFunction function) {
         if (context.getMainProject().getTargetSdk() < 17) {
             return;
         }
 
-        PsiExpression[] arguments = call.getArgumentList().getExpressions();
-        if (arguments.length != 2) {
+        if (call.getValueArgumentCount() != 2) {
+            return;
+        }
+        List<UExpression> arguments = call.getValueArguments();
+
+        if (!function.matchesNameWithContaining(WEB_VIEW_CLS, ADD_JAVASCRIPT_INTERFACE)) {
             return;
         }
 
-        JavaEvaluator evaluator = context.getEvaluator();
-        if (!evaluator.isMemberInClass(method, WEB_VIEW_CLS)) {
-            return;
-        }
-
-        PsiExpression first = arguments[0];
-        PsiType evaluated = TypeEvaluator.evaluate(context, first);
-        if (evaluated instanceof PsiClassType) {
-            PsiClassType classType = (PsiClassType) evaluated;
-            PsiClass cls = classType.resolve();
+        UExpression first = arguments.get(0);
+        UType evaluated = first.getExpressionType();
+        if (evaluated != null) {
+            UClass cls = evaluated.resolve(context);
             if (cls == null) {
                 return;
             }
-            if (isJavaScriptAnnotated(cls)) {
+            if (isJavaScriptAnnotated(cls, context)) {
                 return;
             }
 
-            Location location = context.getNameLocation(call);
+            Location location = context.getLocation(call.getFunctionNameElement());
             String message = String.format(
                     "None of the methods in the added interface (%1$s) have been annotated " +
-                    "with `@android.webkit.JavascriptInterface`; they will not " +
-                    "be visible in API 17", cls.getName());
+                            "with `@android.webkit.JavascriptInterface`; they will not " +
+                            "be visible in API 17", cls.getName());
             context.report(ISSUE, call, location, message);
         }
     }
 
-    private static boolean isJavaScriptAnnotated(PsiClass clz) {
+    private static boolean isJavaScriptAnnotated(UClass clz, UastContext context) {
         while (clz != null) {
-            PsiModifierList modifierList = clz.getModifierList();
-            if (modifierList != null
-                    && modifierList.findAnnotation(JAVASCRIPT_INTERFACE_CLS) != null) {
+            if (clz.findAnnotation(JAVASCRIPT_INTERFACE_CLS) != null) {
                 return true;
             }
 
-            for (PsiMethod method : clz.getMethods()) {
-                if (method.getModifierList().findAnnotation(JAVASCRIPT_INTERFACE_CLS) != null) {
+            for (UFunction method : clz.getFunctions()) {
+                if (method.findAnnotation(JAVASCRIPT_INTERFACE_CLS) != null) {
                     return true;
                 }
             }
 
-            clz = clz.getSuperClass();
+            clz = clz.getSuperClass(context);
         }
 
         return false;

@@ -38,8 +38,8 @@ import com.android.resources.ResourceType;
 import com.android.tools.lint.checks.ResourceUsageModel.Resource;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Context;
+import com.android.tools.lint.detector.api.Detector;
 import com.android.tools.lint.detector.api.Detector.BinaryResourceScanner;
-import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
 import com.android.tools.lint.detector.api.Detector.XmlScanner;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
@@ -58,13 +58,17 @@ import com.android.utils.XmlUtils;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.common.io.Files;
-import com.intellij.psi.JavaElementVisitor;
-import com.intellij.psi.JavaRecursiveElementVisitor;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiField;
-import com.intellij.psi.PsiImportStaticStatement;
-import com.intellij.psi.PsiReferenceExpression;
 
+import org.jetbrains.uast.UElement;
+import org.jetbrains.uast.UFile;
+import org.jetbrains.uast.UImportStatement;
+import org.jetbrains.uast.USimpleReferenceExpression;
+import org.jetbrains.uast.UVariable;
+import org.jetbrains.uast.UastUtils;
+import org.jetbrains.uast.visitor.AbstractUastVisitor;
+import org.jetbrains.uast.visitor.UastVisitor;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
@@ -83,7 +87,7 @@ import java.util.Set;
 /**
  * Finds unused resources.
  */
-public class UnusedResourceDetector extends ResourceXmlDetector implements JavaPsiScanner,
+public class UnusedResourceDetector extends ResourceXmlDetector implements Detector.UastScanner,
         BinaryResourceScanner, XmlScanner {
 
     private static final Implementation IMPLEMENTATION = new Implementation(
@@ -507,18 +511,18 @@ public class UnusedResourceDetector extends ResourceXmlDetector implements JavaP
         }
     }
 
-    // ---- Implements JavaScanner ----
+    // ---- Implements UastScanner ----
 
     @Override
-    public List<Class<? extends PsiElement>> getApplicablePsiTypes() {
-        return Collections.<Class<? extends PsiElement>>singletonList(PsiImportStaticStatement.class);
+    public List<Class<? extends UElement>> getApplicableUastTypes() {
+        return Collections.<Class<? extends UElement>>singletonList(UImportStatement.class);
     }
 
     @Nullable
     @Override
-    public JavaElementVisitor createPsiVisitor(@NonNull JavaContext context) {
+    public UastVisitor createUastVisitor(@NonNull JavaContext context) {
         if (context.getDriver().getPhase() == 1) {
-            return new UnusedResourceVisitor();
+            return new UnusedResourceVisitor(context);
         } else {
             // Second pass, computing resource declaration locations: No need to look at Java
             return null;
@@ -531,54 +535,64 @@ public class UnusedResourceDetector extends ResourceXmlDetector implements JavaP
     }
 
     @Override
-    public void visitResourceReference(@NonNull JavaContext context,
-            @Nullable JavaElementVisitor visitor, @NonNull PsiElement node,
-            @NonNull ResourceType type, @NonNull String name, boolean isFramework) {
+    public void visitResourceReference(@NonNull JavaContext context, @Nullable UastVisitor visitor,
+            @NonNull UElement node, @NonNull ResourceType type, @NonNull String name,
+            boolean isFramework) {
         if (!isFramework) {
             ResourceUsageModel.markReachable(mModel.addResource(type, name, null));
         }
     }
 
     // Look for references and declarations
-    private class UnusedResourceVisitor extends JavaElementVisitor {
-        public UnusedResourceVisitor() {
+    private class UnusedResourceVisitor extends AbstractUastVisitor {
+        private final JavaContext mContext;
+
+        public UnusedResourceVisitor(JavaContext context) {
+            mContext = context;
         }
 
         @Override
-        public void visitImportStaticStatement(PsiImportStaticStatement statement) {
+        public boolean visitImportStatement(UImportStatement node) {
             if (mScannedForStaticImports) {
-                return;
+                return super.visitImportStatement(node);
             }
-            if (statement.isOnDemand()) {
+
+            if (node.isStarImport()) {
                 // Wildcard import of whole type:
                 // import static pkg.R.type.*;
                 // We have to do a more expensive analysis here to
                 // for example recognize "x" as a reference to R.string.x
                 mScannedForStaticImports = true;
-                statement.getContainingFile().accept(new JavaRecursiveElementVisitor() {
-                    @Override
-                    public void visitReferenceExpression(PsiReferenceExpression expression) {
-                        PsiElement resolved = expression.resolve();
-                        if (resolved instanceof PsiField) {
-                            ResourceUrl url = ResourceEvaluator.getResourceConstant(resolved);
-                            if (url != null && !url.framework) {
-                                Resource resource = mModel.addResource(url.type, url.name, null);
-                                ResourceUsageModel.markReachable(resource);
+                UFile containingFile = UastUtils.getContainingFile(node);
+                if (containingFile != null) {
+                    containingFile.accept(new AbstractUastVisitor() {
+                        @Override
+                        public boolean visitSimpleReferenceExpression(USimpleReferenceExpression node) {
+                            UElement resolved = node.resolve(mContext);
+                            if (resolved instanceof UVariable) {
+                                ResourceUrl url = ResourceEvaluator.getResourceConstant(resolved, mContext);
+                                if (url != null && !url.framework) {
+                                    Resource resource = mModel.addResource(url.type, url.name, null);
+                                    ResourceUsageModel.markReachable(resource);
+                                }
                             }
+
+                            return super.visitSimpleReferenceExpression(node);
                         }
-                        super.visitReferenceExpression(expression);
-                    }
-                });
+                    });
+                }
             } else {
-                PsiElement resolved = statement.resolve();
-                if (resolved instanceof PsiField) {
-                    ResourceUrl url = ResourceEvaluator.getResourceConstant(resolved);
+                UElement resolved = node.resolve(mContext);
+                if (resolved instanceof UVariable) {
+                    ResourceUrl url = ResourceEvaluator.getResourceConstant(resolved, mContext);
                     if (url != null && !url.framework) {
                         Resource resource = mModel.addResource(url.type, url.name, null);
                         ResourceUsageModel.markReachable(resource);
                     }
                 }
             }
+
+            return super.visitImportStatement(node);
         }
 
         private boolean mScannedForStaticImports;

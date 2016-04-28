@@ -64,7 +64,6 @@ import com.android.tools.lint.detector.api.Project;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
 import com.android.tools.lint.detector.api.TextFormat;
-import com.android.tools.lint.psi.EcjPsiBuilder;
 import com.android.utils.FileUtils;
 import com.android.utils.ILogger;
 import com.android.utils.SdkUtils;
@@ -257,12 +256,7 @@ public abstract class LintDetectorTest extends SdkTestCase {
             }
 
             String secondResult;
-            try {
-                EcjPsiBuilder.setDebugOptions(true, true);
-                secondResult = lintClient.analyze(files);
-            } finally {
-                EcjPsiBuilder.setDebugOptions(false, false);
-            }
+            secondResult = lintClient.analyze(files);
 
             assertEquals("The lint check produced different results when run on the "
                     + "normal test files and a version where parentheses and whitespace tokens "

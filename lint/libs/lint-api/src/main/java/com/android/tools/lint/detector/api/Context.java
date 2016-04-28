@@ -361,15 +361,13 @@ public class Context {
         // Java and XML files are handled in sub classes (XmlContext, JavaContext)
 
         String path = file.getPath();
-        if (path.endsWith(DOT_JAVA) || path.endsWith(DOT_GRADLE)) {
-            return JavaContext.SUPPRESS_COMMENT_PREFIX;
-        } else if (path.endsWith(DOT_XML)) {
+        if (path.endsWith(DOT_XML)) {
             return XmlContext.SUPPRESS_COMMENT_PREFIX;
         } else if (path.endsWith(".cfg") || path.endsWith(".pro")) {
             return "#suppress ";
+        } else {
+            return JavaContext.SUPPRESS_COMMENT_PREFIX;
         }
-
-        return null;
     }
 
     /** Returns whether this file contains any suppress comment markers */
@@ -417,6 +415,43 @@ public class Context {
         int index = findPrefixOnPreviousLine(contents, lineStart, prefix);
         if (index != -1 &&index+prefix.length() < lineStart) {
                 String line = contents.substring(index + prefix.length(), lineStart);
+            return line.contains(issue.getId())
+                    || line.contains(SUPPRESS_ALL) && line.trim().startsWith(SUPPRESS_ALL);
+        }
+
+        return false;
+    }
+
+    /**
+     * Returns true if the given issue is suppressed at the given character offset
+     * in the file's contents
+     */
+    public boolean isSuppressedWithComment(String comment, int startOffset, @NonNull Issue issue) {
+
+        String prefix = getSuppressCommentPrefix();
+        if (prefix == null) {
+            return false;
+        }
+
+        if (startOffset <= 0) {
+            return false;
+        }
+
+        // Check whether there is a comment marker
+        String contents = getContents();
+        assert contents != null; // otherwise we wouldn't be here
+        if (startOffset >= contents.length()) {
+            return false;
+        }
+
+        // Scan backwards to the previous line and see if it contains the marker
+        int lineStart = contents.lastIndexOf('\n', startOffset) + 1;
+        if (lineStart <= 1) {
+            return false;
+        }
+        int index = findPrefixOnPreviousLine(contents, lineStart, prefix);
+        if (index != -1 &&index+prefix.length() < lineStart) {
+            String line = contents.substring(index + prefix.length(), lineStart);
             return line.contains(issue.getId())
                     || line.contains(SUPPRESS_ALL) && line.trim().startsWith(SUPPRESS_ALL);
         }

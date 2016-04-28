@@ -16,31 +16,32 @@
 
 package com.android.tools.lint.checks;
 
+import static org.jetbrains.uast.UastUtils.resolveIfCan;
+
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.android.tools.lint.client.api.JavaEvaluator;
+import com.android.tools.lint.client.api.UastLintUtils;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Detector;
-import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
 import com.android.tools.lint.detector.api.Location;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
-import com.intellij.psi.JavaElementVisitor;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiExpression;
-import com.intellij.psi.PsiField;
-import com.intellij.psi.PsiMethod;
-import com.intellij.psi.PsiMethodCallExpression;
-import com.intellij.psi.PsiNewExpression;
+
+import org.jetbrains.uast.UCallExpression;
+import org.jetbrains.uast.UDeclaration;
+import org.jetbrains.uast.UExpression;
+import org.jetbrains.uast.UFunction;
+import org.jetbrains.uast.UVariable;
+import org.jetbrains.uast.visitor.UastVisitor;
 
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
-public class AllowAllHostnameVerifierDetector extends Detector implements JavaPsiScanner {
+public class AllowAllHostnameVerifierDetector extends Detector implements Detector.UastScanner {
 
     @SuppressWarnings("unchecked")
     private static final Implementation IMPLEMENTATION =
@@ -67,8 +68,8 @@ public class AllowAllHostnameVerifierDetector extends Detector implements JavaPs
     }
 
     @Override
-    public void visitConstructor(@NonNull JavaContext context, @Nullable JavaElementVisitor visitor,
-            @NonNull PsiNewExpression node, @NonNull PsiMethod constructor) {
+    public void visitConstructor(@NonNull JavaContext context, @Nullable UastVisitor visitor,
+            @NonNull UCallExpression node, @NonNull UFunction constructor) {
         Location location = context.getLocation(node);
         context.report(ISSUE, node, location,
                 "Using the AllowAllHostnameVerifier HostnameVerifier is unsafe " +
@@ -78,28 +79,31 @@ public class AllowAllHostnameVerifierDetector extends Detector implements JavaPs
     }
 
     @Override
-    public List<String> getApplicableMethodNames() {
+    public List<String> getApplicableFunctionNames() {
         return Arrays.asList("setHostnameVerifier", "setDefaultHostnameVerifier");
     }
 
     @Override
-    public void visitMethod(@NonNull JavaContext context, @Nullable JavaElementVisitor visitor,
-            @NonNull PsiMethodCallExpression node, @NonNull PsiMethod method) {
-        JavaEvaluator evaluator = context.getEvaluator();
-        if (evaluator.methodMatches(method, null, false, "javax.net.ssl.HostnameVerifier")) {
-            PsiExpression argument = node.getArgumentList().getExpressions()[0];
-            PsiElement resolvedArgument = evaluator.resolve(argument);
-            if (resolvedArgument instanceof PsiField) {
-                PsiField field = (PsiField) resolvedArgument;
-                if ("ALLOW_ALL_HOSTNAME_VERIFIER".equals(field.getName())) {
-                    Location location = context.getLocation(argument);
-                    String message = "Using the ALLOW_ALL_HOSTNAME_VERIFIER HostnameVerifier "
-                            + "is unsafe because it always returns true, which could cause "
-                            + "insecure network traffic due to trusting TLS/SSL server "
-                            + "certificates for wrong hostnames";
-                    context.report(ISSUE, argument, location, message);
+    public void visitFunctionCallExpression(@NonNull JavaContext context,
+            @Nullable UastVisitor visitor, @NonNull UCallExpression call,
+            @NonNull UFunction function) {
+        if (UastLintUtils.functionMatches(function, null, false, "javax.net.ssl.HostnameVerifier")) {
+            if (call.getValueArgumentCount() > 0) {
+                UExpression argument = call.getValueArguments().get(0);
+                UDeclaration resolvedArgument = resolveIfCan(argument, context);
+                if (resolvedArgument instanceof UVariable) {
+                    UVariable field = (UVariable) resolvedArgument;
+                    if (field.matchesName("ALLOW_ALL_HOSTNAME_VERIFIER")) {
+                        Location location = context.getLocation(argument);
+                        String message = "Using the ALLOW_ALL_HOSTNAME_VERIFIER HostnameVerifier "
+                                + "is unsafe because it always returns true, which could cause "
+                                + "insecure network traffic due to trusting TLS/SSL server "
+                                + "certificates for wrong hostnames";
+                        context.report(ISSUE, argument, location, message);
+                    }
                 }
             }
         }
+
     }
 }

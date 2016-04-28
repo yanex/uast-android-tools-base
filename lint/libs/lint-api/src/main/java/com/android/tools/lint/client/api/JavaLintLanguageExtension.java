@@ -14,17 +14,25 @@
  * limitations under the License.
  */
 
-package com.android.tools.lint.psi;
+package com.android.tools.lint.client.api;
 
-import com.android.annotations.NonNull;
-import com.android.annotations.Nullable;
-import com.intellij.psi.PsiStatement;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.uast.UastConverter;
+import org.jetbrains.uast.UastVisitorExtension;
+import org.jetbrains.uast.java.JavaUastLanguagePlugin;
 
-import org.eclipse.jdt.internal.compiler.ast.Statement;
+import java.util.List;
 
-public abstract class EcjPsiStatement extends EcjPsiSourceElement implements PsiStatement {
-    EcjPsiStatement(@NonNull EcjPsiManager manager,
-            @Nullable Statement statement) {
-        super(manager, statement);
+public class JavaLintLanguageExtension extends LintLanguageExtension {
+    @NotNull
+    @Override
+    public UastConverter getConverter() {
+        return JavaUastLanguagePlugin.INSTANCE.getConverter();
+    }
+
+    @NotNull
+    @Override
+    public List<UastVisitorExtension> getVisitorExtensions() {
+        return JavaUastLanguagePlugin.INSTANCE.getVisitorExtensions();
     }
 }

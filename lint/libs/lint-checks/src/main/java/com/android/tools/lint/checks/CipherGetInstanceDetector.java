@@ -35,6 +35,13 @@ import com.intellij.psi.PsiLiteral;
 import com.intellij.psi.PsiMethod;
 import com.intellij.psi.PsiMethodCallExpression;
 
+import org.jetbrains.uast.UCallExpression;
+import org.jetbrains.uast.UElement;
+import org.jetbrains.uast.UExpression;
+import org.jetbrains.uast.UFunction;
+import org.jetbrains.uast.UastUtils;
+import org.jetbrains.uast.visitor.UastVisitor;
+
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
@@ -42,7 +49,7 @@ import java.util.Set;
 /**
  * Ensures that Cipher.getInstance is not called with AES as the parameter.
  */
-public class CipherGetInstanceDetector extends Detector implements Detector.JavaPsiScanner {
+public class CipherGetInstanceDetector extends Detector implements Detector.UastScanner {
     public static final Issue ISSUE = Issue.create(
             "GetInstance", //$NON-NLS-1$
             "Cipher.getInstance with ECB",
@@ -66,30 +73,31 @@ public class CipherGetInstanceDetector extends Detector implements Detector.Java
 
     @Nullable
     @Override
-    public List<String> getApplicableMethodNames() {
+    public List<String> getApplicableFunctionNames() {
         return Collections.singletonList(GET_INSTANCE);
     }
 
     @Override
-    public void visitMethod(@NonNull JavaContext context, @Nullable JavaElementVisitor visitor,
-            @NonNull PsiMethodCallExpression node, @NonNull PsiMethod method) {
-        if (!context.getEvaluator().isMemberInSubClassOf(method, CIPHER, false)) {
+    public void visitFunctionCallExpression(@NonNull JavaContext context,
+            @Nullable UastVisitor visitor, @NonNull UCallExpression call,
+            @NonNull UFunction function) {
+        if (!UastUtils.getContainingClassOrEmpty(function).isSubclassOf(CIPHER, false)) {
             return;
         }
-        PsiExpressionList argumentList = node.getArgumentList();
-        PsiExpression[] arguments = argumentList.getExpressions();
-        if (arguments.length == 1) {
-            PsiExpression expression = arguments[0];
-            Object value = ConstantEvaluator.evaluate(context, expression);
+
+        List<UExpression> arguments = call.getValueArguments();
+        if (arguments.size() == 1) {
+            UExpression expression = arguments.get(0);
+            Object value = expression.evaluate();
             if (value instanceof String) {
-                checkParameter(context, node, expression, (String)value,
+                checkParameter(context, call, expression, (String)value,
                         !(expression instanceof PsiLiteral));
             }
         }
     }
 
     private static void checkParameter(@NonNull JavaContext context,
-            @NonNull PsiMethodCallExpression call, @NonNull PsiElement node, @NonNull String value,
+            @NonNull UCallExpression call, @NonNull UElement node, @NonNull String value,
             boolean includeValue) {
         if (ALGORITHM_ONLY.contains(value)) {
             String message = "`Cipher.getInstance` should not be called without setting the"

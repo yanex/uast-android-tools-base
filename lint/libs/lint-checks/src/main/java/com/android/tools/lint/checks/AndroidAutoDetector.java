@@ -29,9 +29,10 @@ import static com.android.xml.AndroidManifest.NODE_METADATA;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.resources.ResourceFolderType;
+import com.android.tools.lint.client.api.UastLintUtils;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Context;
-import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
+import com.android.tools.lint.detector.api.Detector;
 import com.android.tools.lint.detector.api.Detector.XmlScanner;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
@@ -42,10 +43,11 @@ import com.android.tools.lint.detector.api.ResourceXmlDetector;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
 import com.android.tools.lint.detector.api.XmlContext;
-import com.intellij.psi.JavaRecursiveElementVisitor;
-import com.intellij.psi.PsiClass;
-import com.intellij.psi.PsiMethod;
 
+import org.jetbrains.uast.UClass;
+import org.jetbrains.uast.UFunction;
+import org.jetbrains.uast.UastModifier;
+import org.jetbrains.uast.visitor.AbstractUastVisitor;
 import org.w3c.dom.Attr;
 import org.w3c.dom.Element;
 
@@ -60,7 +62,7 @@ import java.util.List;
  * as a trigger for validating Automotive specific issues.
  */
 public class AndroidAutoDetector extends ResourceXmlDetector
-        implements XmlScanner, JavaPsiScanner {
+        implements XmlScanner, Detector.UastScanner {
 
     @SuppressWarnings("unchecked")
     public static final Implementation IMPL = new Implementation(
@@ -329,7 +331,7 @@ public class AndroidAutoDetector extends ResourceXmlDetector
         }
     }
 
-    // Implementation of the JavaScanner
+    // Implementation of the UastScanner
 
     @Override
     @Nullable
@@ -342,20 +344,20 @@ public class AndroidAutoDetector extends ResourceXmlDetector
     }
 
     @Override
-    public void checkClass(@NonNull JavaContext context, @NonNull PsiClass declaration) {
+    public void checkClass(@NonNull JavaContext context, @NonNull UClass declaration) {
         // Only check classes that are not declared abstract.
-        if (!context.getEvaluator().isAbstract(declaration)) {
+        if (!declaration.hasModifier(UastModifier.ABSTRACT)) {
             MediaSessionCallbackVisitor visitor = new MediaSessionCallbackVisitor(context);
             declaration.accept(visitor);
             if (!visitor.isPlayFromSearchMethodFound()
                     && context.isEnabled(MISSING_ON_PLAY_FROM_SEARCH)) {
 
                 context.report(MISSING_ON_PLAY_FROM_SEARCH, declaration,
-                        context.getNameLocation(declaration),
+                        context.getLocation(declaration.getNameElement()),
                         "This class does not override `" +
-                        METHOD_MEDIA_SESSION_PLAY_FROM_SEARCH + "` from `MediaSession.Callback`" +
-                        " The method should be overridden and implemented to support " +
-                        "Voice search on Android Auto.");
+                                METHOD_MEDIA_SESSION_PLAY_FROM_SEARCH + "` from `MediaSession.Callback`" +
+                                " The method should be overridden and implemented to support " +
+                                "Voice search on Android Auto.");
             }
         }
     }
@@ -364,7 +366,7 @@ public class AndroidAutoDetector extends ResourceXmlDetector
      * A Visitor class to search for {@code MediaSession.Callback#onPlayFromSearch(..)}
      * method declaration.
      */
-    private static class MediaSessionCallbackVisitor extends JavaRecursiveElementVisitor {
+    private static class MediaSessionCallbackVisitor extends AbstractUastVisitor {
 
         private final JavaContext mContext;
 
@@ -379,13 +381,13 @@ public class AndroidAutoDetector extends ResourceXmlDetector
         }
 
         @Override
-        public void visitMethod(PsiMethod method) {
-            super.visitMethod(method);
-            if (METHOD_MEDIA_SESSION_PLAY_FROM_SEARCH.equals(method.getName())
-                    && mContext.getEvaluator().parametersMatch(method, TYPE_STRING,
-                    BUNDLE_ARG)) {
+        public boolean visitFunction(UFunction node) {
+            if (METHOD_MEDIA_SESSION_PLAY_FROM_SEARCH.equals(node.getName())
+                    && UastLintUtils.parametersMatch(node, TYPE_STRING, BUNDLE_ARG)) {
                 mOnPlayFromSearchFound = true;
             }
+
+            return super.visitFunction(node);
         }
     }
 

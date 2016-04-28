@@ -16,24 +16,27 @@
 
 package com.android.tools.lint.checks;
 
-import static com.android.tools.lint.detector.api.LintUtils.isNullLiteral;
+import static org.jetbrains.uast.UastLiteralUtils.isNullLiteral;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Detector;
-import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
-import com.intellij.psi.JavaElementVisitor;
-import com.intellij.psi.PsiAssertStatement;
-import com.intellij.psi.PsiBinaryExpression;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiExpression;
-import com.intellij.psi.PsiLiteral;
+
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.uast.UBinaryExpression;
+import org.jetbrains.uast.UCallExpression;
+import org.jetbrains.uast.UElement;
+import org.jetbrains.uast.UExpression;
+import org.jetbrains.uast.ULiteralExpression;
+import org.jetbrains.uast.java.JavaUastCallKinds;
+import org.jetbrains.uast.visitor.AbstractUastVisitor;
+import org.jetbrains.uast.visitor.UastVisitor;
 
 import java.util.Collections;
 import java.util.List;
@@ -41,7 +44,7 @@ import java.util.List;
 /**
  * Looks for assertion usages.
  */
-public class AssertDetector extends Detector implements JavaPsiScanner {
+public class AssertDetector extends Detector implements Detector.UastScanner {
     /** Using assertions */
     public static final Issue ISSUE = Issue.create(
             "Assert", //$NON-NLS-1$
@@ -78,24 +81,33 @@ public class AssertDetector extends Detector implements JavaPsiScanner {
 
 
     @Override
-    public List<Class<? extends PsiElement>> getApplicablePsiTypes() {
-        return Collections.<Class<? extends PsiElement>>singletonList(PsiAssertStatement.class);
+    public List<Class<? extends UElement>> getApplicableUastTypes() {
+        return Collections.<Class<? extends UElement>>singletonList(UCallExpression.class);
     }
 
     @Nullable
     @Override
-    public JavaElementVisitor createPsiVisitor(@NonNull final JavaContext context) {
+    public UastVisitor createUastVisitor(@NonNull final JavaContext context) {
         if (!context.getMainProject().isAndroidProject()) {
             return null;
         }
 
-        return new JavaElementVisitor() {
+        return new AbstractUastVisitor() {
             @Override
-            public void visitAssertStatement(PsiAssertStatement node) {
-                PsiExpression assertion = node.getAssertCondition();
+            public boolean visitCallExpression(@NotNull UCallExpression node) {
+                if (node.getKind() == JavaUastCallKinds.ASSERT
+                        && node.getValueArgumentCount() >= 1) {
+                    visitAssertExpression(node);
+                }
+
+                return super.visitCallExpression(node);
+            }
+
+            private void visitAssertExpression(UCallExpression node) {
+                UExpression assertion = node.getValueArguments().get(0);
                 // Allow "assert true"; it's basically a no-op
-                if (assertion instanceof PsiLiteral) {
-                    Object value = ((PsiLiteral)assertion).getValue();
+                if (assertion instanceof ULiteralExpression) {
+                    Object value = ((ULiteralExpression) assertion).getValue();
                     if (Boolean.TRUE.equals(value)) {
                         return;
                     }
@@ -121,11 +133,11 @@ public class AssertDetector extends Detector implements JavaPsiScanner {
      * true for expressions like "a != null" and "a != null && b != null" and
      * "b == null || c != null".
      */
-    private static boolean isNullCheck(PsiExpression expression) {
-        if (expression instanceof PsiBinaryExpression) {
-            PsiBinaryExpression binExp = (PsiBinaryExpression) expression;
-            PsiExpression lOperand = binExp.getLOperand();
-            PsiExpression rOperand = binExp.getROperand();
+    private static boolean isNullCheck(UExpression expression) {
+        if (expression instanceof UBinaryExpression) {
+            UBinaryExpression binExp = (UBinaryExpression) expression;
+            UExpression lOperand = binExp.getLeftOperand();
+            UExpression rOperand = binExp.getRightOperand();
             if (isNullLiteral(lOperand) || isNullLiteral(rOperand)) {
                 return true;
             } else {

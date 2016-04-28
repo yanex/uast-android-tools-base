@@ -18,13 +18,12 @@ package com.android.tools.lint.checks;
 
 
 import static com.android.tools.lint.checks.CutPasteDetector.isReachableFrom;
+import static org.jetbrains.uast.UastVariableKind.LOCAL_VARIABLE;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.android.tools.lint.client.api.JavaEvaluator;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Detector;
-import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
@@ -32,22 +31,22 @@ import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.intellij.psi.JavaRecursiveElementVisitor;
-import com.intellij.psi.PsiAssignmentExpression;
-import com.intellij.psi.PsiClass;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiExpression;
-import com.intellij.psi.PsiField;
-import com.intellij.psi.PsiLocalVariable;
-import com.intellij.psi.PsiMethod;
-import com.intellij.psi.PsiMethodCallExpression;
-import com.intellij.psi.PsiNewExpression;
-import com.intellij.psi.PsiParameter;
-import com.intellij.psi.PsiReference;
-import com.intellij.psi.PsiReferenceExpression;
-import com.intellij.psi.PsiStatement;
-import com.intellij.psi.PsiVariable;
-import com.intellij.psi.util.PsiTreeUtil;
+
+import org.jetbrains.uast.UBinaryExpression;
+import org.jetbrains.uast.UCallExpression;
+import org.jetbrains.uast.UClass;
+import org.jetbrains.uast.UDeclaration;
+import org.jetbrains.uast.UElement;
+import org.jetbrains.uast.UExpression;
+import org.jetbrains.uast.UFunction;
+import org.jetbrains.uast.USimpleReferenceExpression;
+import org.jetbrains.uast.UVariable;
+import org.jetbrains.uast.UastBinaryOperator;
+import org.jetbrains.uast.UastContext;
+import org.jetbrains.uast.UastModifier;
+import org.jetbrains.uast.UastUtils;
+import org.jetbrains.uast.expressions.UReferenceExpression;
+import org.jetbrains.uast.visitor.AbstractUastVisitor;
 
 import java.util.Collections;
 import java.util.List;
@@ -56,7 +55,7 @@ import java.util.Map;
 /**
  * Checks related to RecyclerView usage.
  */
-public class RecyclerViewDetector extends Detector implements JavaPsiScanner {
+public class RecyclerViewDetector extends Detector implements Detector.UastScanner {
 
     public static final Implementation IMPLEMENTATION = new Implementation(
             RecyclerViewDetector.class,
@@ -96,7 +95,7 @@ public class RecyclerViewDetector extends Detector implements JavaPsiScanner {
     private static final String VIEW_ADAPTER = "android.support.v7.widget.RecyclerView.Adapter"; //$NON-NLS-1$
     private static final String ON_BIND_VIEW_HOLDER = "onBindViewHolder"; //$NON-NLS-1$
 
-    // ---- Implements JavaScanner ----
+    // ---- Implements UastScanner ----
 
     @Nullable
     @Override
@@ -105,21 +104,20 @@ public class RecyclerViewDetector extends Detector implements JavaPsiScanner {
     }
 
     @Override
-    public void checkClass(@NonNull JavaContext context, @NonNull PsiClass declaration) {
-        JavaEvaluator evaluator = context.getEvaluator();
-        for (PsiMethod method : declaration.findMethodsByName(ON_BIND_VIEW_HOLDER, false)) {
-            int size = evaluator.getParameterCount(method);
+    public void checkClass(@NonNull JavaContext context, @NonNull UClass declaration) {
+        for (UFunction function : UastUtils.findFunctions(declaration, ON_BIND_VIEW_HOLDER)) {
+            int size = function.getValueParameterCount();
             if (size == 2 || size == 3) {
-                checkMethod(context, method, declaration);
+                checkFunction(context, function, declaration);
             }
         }
     }
 
-    private static void checkMethod(@NonNull JavaContext context,
-            @NonNull PsiMethod declaration, @NonNull PsiClass cls) {
-        PsiParameter[] parameters = declaration.getParameterList().getParameters();
-        PsiParameter viewHolder = parameters[0];
-        PsiParameter parameter = parameters[1];
+    private static void checkFunction(@NonNull JavaContext context,
+            @NonNull UFunction declaration, @NonNull UClass cls) {
+        List<UVariable> parameters = declaration.getValueParameters();
+        UVariable viewHolder = parameters.get(0);
+        UVariable parameter = parameters.get(1);
 
         ParameterEscapesVisitor visitor = new ParameterEscapesVisitor(context, cls, parameter);
         declaration.accept(visitor);
@@ -128,16 +126,13 @@ public class RecyclerViewDetector extends Detector implements JavaPsiScanner {
         }
 
         // Look for pending data binder calls that aren't executed before the method finishes
-        List<PsiMethodCallExpression> dataBinderReferences = visitor.getDataBinders();
+        List<UCallExpression> dataBinderReferences = visitor.getDataBinders();
         checkDataBinders(context, declaration, dataBinderReferences);
     }
 
-    private static void reportError(@NonNull JavaContext context, PsiParameter viewHolder,
-            PsiParameter parameter) {
+    private static void reportError(@NonNull JavaContext context, UVariable viewHolder,
+            UVariable parameter) {
         String variablePrefix = viewHolder.getName();
-        if (variablePrefix == null) {
-            variablePrefix = "ViewHolder";
-        }
         String message = String.format("Do not treat position as fixed; only use immediately "
                 + "and call `%1$s.getAdapterPosition()` to look it up later",
                 variablePrefix);
@@ -146,11 +141,11 @@ public class RecyclerViewDetector extends Detector implements JavaPsiScanner {
     }
 
     private static void checkDataBinders(@NonNull JavaContext context,
-            @NonNull PsiMethod declaration, List<PsiMethodCallExpression> references) {
+            @NonNull UFunction declaration, List<UCallExpression> references) {
         if (references != null && !references.isEmpty()) {
-            List<PsiMethodCallExpression> targets = Lists.newArrayList();
-            List<PsiMethodCallExpression> sources = Lists.newArrayList();
-            for (PsiMethodCallExpression ref : references) {
+            List<UCallExpression> targets = Lists.newArrayList();
+            List<UCallExpression> sources = Lists.newArrayList();
+            for (UCallExpression ref : references) {
                 if (isExecutePendingBindingsCall(ref)) {
                     targets.add(ref);
                 } else {
@@ -166,28 +161,27 @@ public class RecyclerViewDetector extends Detector implements JavaPsiScanner {
             // we only flag the *last* of these calls as needing an executePendingBindings
             // afterwards. We do this with a parent map such that we correctly pair
             // elements when they have nested references within (such as if blocks.)
-            Map<PsiElement, PsiMethodCallExpression> parentToChildren = Maps.newHashMap();
-            for (PsiMethodCallExpression reference : sources) {
+            Map<UElement, UCallExpression> parentToChildren = Maps.newHashMap();
+            for (UCallExpression reference : sources) {
                 // Note: We're using a map, not a multimap, and iterating forwards:
                 // this means that the *last* element will overwrite previous entries,
                 // and we end up with the last reference for each parent which is what we
                 // want
-                PsiStatement statement = PsiTreeUtil.getParentOfType(reference, PsiStatement.class);
-                if (statement != null) {
-                    parentToChildren.put(statement.getParent(), reference);
+                UExpression expression = UastUtils.getParentOfType(reference, UExpression.class);
+                if (expression != null) {
+                    parentToChildren.put(expression.getParent(), reference);
                 }
             }
 
-            for (PsiMethodCallExpression source : parentToChildren.values()) {
-                PsiExpression sourceBinderReference = source.getMethodExpression()
-                        .getQualifierExpression();
-                PsiField sourceDataBinder = getDataBinderReference(sourceBinderReference);
+            for (UCallExpression source : parentToChildren.values()) {
+                UExpression sourceBinderReference = UastUtils.getQualifiedParentOrThis(source);
+                UVariable sourceDataBinder = getDataBinderReference(sourceBinderReference, context);
                 assert sourceDataBinder != null;
 
                 boolean reachesTarget = false;
-                for (PsiMethodCallExpression target : targets) {
+                for (UCallExpression target : targets) {
                     if (sourceDataBinder.equals(getDataBinderReference(
-                            target.getMethodExpression().getQualifierExpression()))
+                            UastUtils.getQualifiedParentOrThis(target), context))
                             // TODO: Provide full control flow graph, or at least provide an
                             // isReachable method which can take multiple targets
                             && isReachableFrom(declaration, source, target)) {
@@ -202,24 +196,26 @@ public class RecyclerViewDetector extends Detector implements JavaPsiScanner {
                                 + "library will update the UI in the next animation frame "
                                 + "causing a delayed update & potential jumps if the item "
                                 + "resizes.",
-                            sourceBinderReference.getText());
+                            sourceBinderReference.originalString());
                     context.report(DATA_BINDER, source, context.getLocation(source), message);
                 }
             }
         }
     }
 
-    private static boolean isExecutePendingBindingsCall(PsiMethodCallExpression call) {
-        return "executePendingBindings".equals(call.getMethodExpression().getReferenceName());
+    private static boolean isExecutePendingBindingsCall(UCallExpression call) {
+        return call.matchesFunctionName("executePendingBindings");
     }
 
     @Nullable
-    private static PsiField getDataBinderReference(@Nullable PsiElement element) {
-        if (element instanceof PsiReference) {
-            PsiElement resolved = ((PsiReference) element).resolve();
-            if (resolved instanceof PsiField) {
-                PsiField field = (PsiField) resolved;
-                if ("dataBinder".equals(field.getName())) {
+    private static UVariable getDataBinderReference(
+            @Nullable UElement element,
+            @NonNull  UastContext context) {
+        if (element instanceof UReferenceExpression) {
+            UElement resolved = ((UReferenceExpression) element).resolve(context);
+            if (resolved instanceof UVariable) {
+                UVariable field = (UVariable) resolved;
+                if (field.matchesName("dataBinder")) {
                     return field;
                 }
             }
@@ -232,18 +228,18 @@ public class RecyclerViewDetector extends Detector implements JavaPsiScanner {
      * Determines whether a given variable "escapes" either to a field or to a nested
      * runnable. (We deliberately ignore variables that escape via method calls.)
      */
-    private static class ParameterEscapesVisitor extends JavaRecursiveElementVisitor {
+    private static class ParameterEscapesVisitor extends AbstractUastVisitor {
         protected final JavaContext mContext;
-        protected final List<PsiVariable> mVariables;
-        private final PsiClass mBindClass;
+        protected final List<UVariable> mVariables;
+        private final UClass mBindClass;
         private boolean mEscapes;
         private boolean mFoundInnerClass;
 
         public ParameterEscapesVisitor(JavaContext context,
-                @NonNull PsiClass bindClass,
-                @NonNull PsiParameter variable) {
+                @NonNull UClass bindClass,
+                @NonNull UVariable variable) {
             mContext = context;
-            mVariables = Lists.<PsiVariable>newArrayList(variable);
+            mVariables = Lists.<UVariable>newArrayList(variable);
             mBindClass = bindClass;
         }
 
@@ -252,105 +248,114 @@ public class RecyclerViewDetector extends Detector implements JavaPsiScanner {
         }
 
         @Override
-        public void visitLocalVariable(PsiLocalVariable variable) {
-            PsiExpression initializer = variable.getInitializer();
-            if (initializer instanceof PsiReference) {
-                PsiElement resolved = ((PsiReference) initializer).resolve();
-                //noinspection SuspiciousMethodCalls
-                if (resolved != null && mVariables.contains(resolved)) {
-                    if (resolved instanceof PsiLocalVariable) {
-                        mVariables.add(variable);
-                    } else if (resolved instanceof PsiField) {
-                        mEscapes = true;
-                    }
-                }
-            }
-
-            super.visitLocalVariable(variable);
-        }
-
-        @Override
-        public void visitAssignmentExpression(PsiAssignmentExpression node) {
-            PsiExpression rhs = node.getRExpression();
-            boolean clearLhs = true;
-            if (rhs instanceof PsiReferenceExpression) {
-                PsiElement resolved = ((PsiReferenceExpression)rhs).resolve();
-                //noinspection SuspiciousMethodCalls
-                if (resolved != null && mVariables.contains(resolved)) {
-                    clearLhs = false;
-                    PsiElement resolvedLhs = mContext.getEvaluator().resolve(node.getLExpression());
-                    if (resolvedLhs instanceof PsiLocalVariable) {
-                        PsiLocalVariable variable = (PsiLocalVariable) resolvedLhs;
-                        mVariables.add(variable);
-                    } else if (resolvedLhs instanceof PsiField) {
-                        mEscapes = true;
-                    }
-                }
-            }
-            if (clearLhs) {
-                // If we reassign one of the variables, clear it out
-                PsiElement resolved = mContext.getEvaluator().resolve(node.getLExpression());
-                //noinspection SuspiciousMethodCalls
-                if (resolved != null && mVariables.contains(resolved)) {
+        public boolean visitVariable(UVariable node) {
+            if (node.getKind() == LOCAL_VARIABLE) {
+                UExpression initializer = node.getInitializer();
+                if (initializer instanceof UReferenceExpression) {
+                    UElement resolved = ((UReferenceExpression) initializer).resolve(mContext);
                     //noinspection SuspiciousMethodCalls
-                    mVariables.remove(resolved);
+                    if (resolved != null && mVariables.contains(resolved)) {
+                        if (resolved instanceof UVariable) {
+                            if (((UVariable) resolved).getKind() == LOCAL_VARIABLE) {
+                                mVariables.add((UVariable) resolved);
+                            } else {
+                                mEscapes = true;
+                            }
+                        }
+                    }
                 }
             }
 
-            super.visitAssignmentExpression(node);
+            return super.visitVariable(node);
         }
 
         @Override
-        public void visitReferenceExpression(PsiReferenceExpression node) {
+        public boolean visitBinaryExpression(UBinaryExpression node) {
+            if (node.getOperator() instanceof UastBinaryOperator.AssignOperator) {
+                UExpression rhs = node.getRightOperand();
+                boolean clearLhs = true;
+                if (rhs instanceof UReferenceExpression) {
+                    UElement resolved = ((UReferenceExpression)rhs).resolve(mContext);
+                    //noinspection SuspiciousMethodCalls
+                    if (resolved != null && mVariables.contains(resolved)) {
+                        clearLhs = false;
+                        UElement resolvedLhs = UastUtils.resolveIfCan(
+                                node.getLeftOperand(), mContext);
+
+                        if (resolvedLhs instanceof UVariable) {
+                            UVariable variable = (UVariable) resolvedLhs;
+                            if (variable.getKind() == LOCAL_VARIABLE) {
+                                mVariables.add(variable);
+                            } else {
+                                mEscapes = true;
+                            }
+                        }
+                    }
+                }
+                if (clearLhs) {
+                    // If we reassign one of the variables, clear it out
+                    UElement resolved = UastUtils.resolveIfCan(node.getLeftOperand(), mContext);
+                    //noinspection SuspiciousMethodCalls
+                    if (resolved != null && mVariables.contains(resolved)) {
+                        //noinspection SuspiciousMethodCalls
+                        mVariables.remove(resolved);
+                    }
+                }
+            }
+
+            return super.visitBinaryExpression(node);
+        }
+
+        @Override
+        public boolean visitSimpleReferenceExpression(USimpleReferenceExpression node) {
             if (mFoundInnerClass) {
                 // Check to see if this reference is inside the same class as the original
                 // onBind (e.g. is this a reference from an inner class, or a reference
                 // to a variable assigned from there)
-                PsiElement resolved = mContext.getEvaluator().resolve(node);
+                UDeclaration resolved = node.resolve(mContext);
                 //noinspection SuspiciousMethodCalls
                 if (resolved != null && mVariables.contains(resolved)) {
-                    PsiClass outer = PsiTreeUtil.getParentOfType(node, PsiClass.class, true);
+                    UClass outer = UastUtils.getParentOfType(node, UClass.class, true);
                     if (!mBindClass.equals(outer)) {
                         mEscapes = true;
                     }
                 }
             }
 
-            super.visitReferenceExpression(node);
+            return super.visitSimpleReferenceExpression(node);
         }
 
         @Override
-        public void visitNewExpression(PsiNewExpression expression) {
-            if (expression.getAnonymousClass() != null) {
+        public boolean visitClass(UClass node) {
+            if (node.isAnonymous() || !node.hasModifier(UastModifier.STATIC)) {
                 mFoundInnerClass = true;
             }
 
-            super.visitNewExpression(expression);
+            return super.visitClass(node);
         }
 
         // Also look for data binder references
 
-        private List<PsiMethodCallExpression> mDataBinders = null;
+        private List<UCallExpression> mDataBinders = null;
 
         @Nullable
-        public List<PsiMethodCallExpression> getDataBinders() {
+        public List<UCallExpression> getDataBinders() {
             return mDataBinders;
         }
 
         @Override
-        public void visitMethodCallExpression(PsiMethodCallExpression expression) {
-            super.visitMethodCallExpression(expression);
-
-            PsiReferenceExpression methodExpression = expression.getMethodExpression();
-            PsiExpression qualifier = methodExpression.getQualifierExpression();
-            PsiField dataBinder = getDataBinderReference(qualifier);
+        public boolean visitCallExpression(UCallExpression node) {
+            UExpression qualifier = UastUtils.getQualifiedParentOrThis(node);
+            UVariable dataBinder = getDataBinderReference(qualifier, mContext);
             //noinspection VariableNotUsedInsideIf
             if (dataBinder != null) {
                 if (mDataBinders == null) {
                     mDataBinders = Lists.newArrayList();
                 }
-                mDataBinders.add(expression);
+                mDataBinders.add(node);
             }
+
+            return super.visitCallExpression(node);
         }
     }
 }

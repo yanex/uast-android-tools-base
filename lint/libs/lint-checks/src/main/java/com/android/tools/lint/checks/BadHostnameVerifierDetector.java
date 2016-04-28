@@ -20,29 +20,32 @@ import static com.android.tools.lint.client.api.JavaParser.TYPE_STRING;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.android.tools.lint.client.api.JavaEvaluator;
+import com.android.tools.lint.client.api.UastLintUtils;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Detector;
-import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
-import com.android.tools.lint.detector.api.LintUtils;
 import com.android.tools.lint.detector.api.Location;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
-import com.intellij.psi.JavaRecursiveElementVisitor;
-import com.intellij.psi.PsiClass;
-import com.intellij.psi.PsiExpression;
-import com.intellij.psi.PsiMethod;
-import com.intellij.psi.PsiMethodCallExpression;
-import com.intellij.psi.PsiReturnStatement;
-import com.intellij.psi.PsiThrowStatement;
+
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.uast.EmptyUExpression;
+import org.jetbrains.uast.UCallExpression;
+import org.jetbrains.uast.UClass;
+import org.jetbrains.uast.UExpression;
+import org.jetbrains.uast.UFunction;
+import org.jetbrains.uast.UReturnExpression;
+import org.jetbrains.uast.UThrowExpression;
+import org.jetbrains.uast.UastLiteralUtils;
+import org.jetbrains.uast.UastUtils;
+import org.jetbrains.uast.visitor.AbstractUastVisitor;
 
 import java.util.Collections;
 import java.util.List;
 
-public class BadHostnameVerifierDetector extends Detector implements JavaPsiScanner {
+public class BadHostnameVerifierDetector extends Detector implements Detector.UastScanner {
 
     @SuppressWarnings("unchecked")
     private static final Implementation IMPLEMENTATION =
@@ -60,7 +63,7 @@ public class BadHostnameVerifierDetector extends Detector implements JavaPsiScan
             Severity.WARNING,
             IMPLEMENTATION);
 
-    // ---- Implements JavaScanner ----
+    // ---- Implements UastScanner ----
 
     @Nullable
     @Override
@@ -69,10 +72,9 @@ public class BadHostnameVerifierDetector extends Detector implements JavaPsiScan
     }
 
     @Override
-    public void checkClass(@NonNull JavaContext context, @NonNull PsiClass declaration) {
-        JavaEvaluator evaluator = context.getEvaluator();
-        for (PsiMethod method : declaration.findMethodsByName("verify", false)) {
-            if (evaluator.methodMatches(method, null, false,
+    public void checkClass(@NonNull JavaContext context, @NonNull UClass declaration) {
+        for (UFunction method : UastUtils.findFunctions(declaration, "verify")) {
+            if (UastLintUtils.functionMatches(method, null, false,
                     TYPE_STRING, "javax.net.ssl.SSLSession")) {
                 ComplexVisitor visitor = new ComplexVisitor(context);
                 declaration.accept(visitor);
@@ -80,7 +82,7 @@ public class BadHostnameVerifierDetector extends Detector implements JavaPsiScan
                     return;
                 }
 
-                Location location = context.getNameLocation(method);
+                Location location = context.getLocation(method.getNameElement());
                 String message = String.format("`%1$s` always returns `true`, which " +
                                 "could cause insecure network traffic due to trusting "
                                 + "TLS/SSL server certificates for wrong hostnames",
@@ -89,9 +91,10 @@ public class BadHostnameVerifierDetector extends Detector implements JavaPsiScan
                 break;
             }
         }
+
     }
 
-    private static class ComplexVisitor extends JavaRecursiveElementVisitor {
+    private static class ComplexVisitor extends AbstractUastVisitor {
         @SuppressWarnings("unused")
         private final JavaContext mContext;
         private boolean mComplex;
@@ -101,33 +104,33 @@ public class BadHostnameVerifierDetector extends Detector implements JavaPsiScan
         }
 
         @Override
-        public void visitThrowStatement(PsiThrowStatement statement) {
-            super.visitThrowStatement(statement);
+        public boolean visitThrowExpression(@NotNull UThrowExpression node) {
             mComplex = true;
+            return super.visitThrowExpression(node);
         }
 
         @Override
-        public void visitMethodCallExpression(PsiMethodCallExpression expression) {
-            super.visitMethodCallExpression(expression);
+        public boolean visitCallExpression(@NotNull UCallExpression node) {
             // TODO: Ignore certain known safe methods, e.g. Logging etc
             mComplex = true;
+            return super.visitCallExpression(node);
         }
 
         @Override
-        public void visitReturnStatement(PsiReturnStatement node) {
-            PsiExpression argument = node.getReturnValue();
-            if (argument != null) {
+        public boolean visitReturnExpression(@NotNull UReturnExpression node) {
+            UExpression argument = node.getReturnExpression();
+            if (argument != null && !(argument instanceof EmptyUExpression)) {
                 // TODO: Only do this if certain that there isn't some intermediate
                 // assignment, as exposed by the unit test
                 //Object value = ConstantEvaluator.evaluate(mContext, argument);
                 //if (Boolean.TRUE.equals(value)) {
-                if (LintUtils.isTrueLiteral(argument)) {
+                if (UastLiteralUtils.isTrueLiteral(argument)) {
                     mComplex = false;
                 } else {
                     mComplex = true; // "return false" or some complicated logic
                 }
             }
-            super.visitReturnStatement(node);
+            return super.visitReturnExpression(node);
         }
 
         public boolean isComplex() {

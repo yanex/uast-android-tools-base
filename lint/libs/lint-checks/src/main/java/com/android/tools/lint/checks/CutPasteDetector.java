@@ -52,6 +52,10 @@ import com.intellij.psi.PsiTypeCastExpression;
 import com.intellij.psi.PsiWhiteSpace;
 import com.intellij.psi.util.PsiTreeUtil;
 
+import org.jetbrains.uast.UContinueExpression;
+import org.jetbrains.uast.UElement;
+import org.jetbrains.uast.UFunction;
+
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -208,6 +212,24 @@ public class CutPasteDetector extends Detector implements Detector.JavaPsiScanne
         return false;
     }
 
+    static boolean isReachableFrom(
+            @NonNull UFunction method,
+            @NonNull UElement from,
+            @NonNull UElement to) {
+        /*UElement prev = from;
+        UElement curr = next(method, from, to, null);
+        //noinspection ConstantConditions
+        while (curr != null) {
+            if (containsElement(method, curr, to)) {
+                return true;
+            }
+            curr = next(method, curr, to, prev);
+            prev = curr;
+        }*/
+
+        return false;
+    }
+
     @Nullable
     static PsiElement next(
             @NonNull PsiMethod method,
@@ -274,6 +296,22 @@ public class CutPasteDetector extends Detector implements Detector.JavaPsiScanne
             NonNull PsiMethod method,
             @NonNull PsiElement root,
             @NonNull PsiElement element) {
+        //noinspection ConstantConditions
+        while (element != null && element != method) {
+            if (root.equals(element)) {
+                return true;
+            }
+
+            element = element.getParent();
+        }
+
+        return false;
+    }
+
+    private static boolean containsElement(@
+            NonNull UFunction method,
+            @NonNull UElement root,
+            @NonNull UElement element) {
         //noinspection ConstantConditions
         while (element != null && element != method) {
             if (root.equals(element)) {

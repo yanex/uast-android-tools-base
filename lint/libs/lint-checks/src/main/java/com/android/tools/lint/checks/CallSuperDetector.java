@@ -26,20 +26,23 @@ import com.android.annotations.Nullable;
 import com.android.tools.lint.client.api.JavaEvaluator;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Detector;
-import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
 import com.android.tools.lint.detector.api.Location;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
-import com.intellij.psi.JavaElementVisitor;
-import com.intellij.psi.JavaRecursiveElementVisitor;
-import com.intellij.psi.PsiAnnotation;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiMethod;
-import com.intellij.psi.PsiReferenceExpression;
-import com.intellij.psi.PsiSuperExpression;
+
+import org.jetbrains.uast.UAnnotation;
+import org.jetbrains.uast.UDeclaration;
+import org.jetbrains.uast.UElement;
+import org.jetbrains.uast.UFunction;
+import org.jetbrains.uast.UResolvable;
+import org.jetbrains.uast.USuperExpression;
+import org.jetbrains.uast.UastContext;
+import org.jetbrains.uast.UastUtils;
+import org.jetbrains.uast.visitor.AbstractUastVisitor;
+import org.jetbrains.uast.visitor.UastVisitor;
 
 import java.util.Collections;
 import java.util.List;
@@ -47,7 +50,7 @@ import java.util.List;
 /**
  * Makes sure that methods call super when overriding methods.
  */
-public class CallSuperDetector extends Detector implements JavaPsiScanner {
+public class CallSuperDetector extends Detector implements Detector.UastScanner {
     private static final String CALL_SUPER_ANNOTATION = SUPPORT_ANNOTATIONS_PREFIX + "CallSuper"; //$NON-NLS-1$
     private static final String ON_DETACHED_FROM_WINDOW = "onDetachedFromWindow";   //$NON-NLS-1$
     private static final String ON_VISIBILITY_CHANGED = "onVisibilityChanged";      //$NON-NLS-1$
@@ -73,34 +76,35 @@ public class CallSuperDetector extends Detector implements JavaPsiScanner {
     public CallSuperDetector() {
     }
 
-    // ---- Implements JavaScanner ----
-
+    // ---- Implements UastScanner ----
 
     @Override
-    public List<Class<? extends PsiElement>> getApplicablePsiTypes() {
-        return Collections.<Class<? extends PsiElement>>singletonList(PsiMethod.class);
+    public List<Class<? extends UElement>> getApplicableUastTypes() {
+        return Collections.<Class<? extends UElement>>singletonList(UFunction.class);
     }
 
+    @Nullable
     @Override
-    public JavaElementVisitor createPsiVisitor(@NonNull final JavaContext context) {
-        return new JavaElementVisitor() {
+    public UastVisitor createUastVisitor(@NonNull final JavaContext context) {
+        return new AbstractUastVisitor() {
             @Override
-            public void visitMethod(PsiMethod method) {
-                checkCallSuper(context, method);
+            public boolean visitFunction(UFunction node) {
+                checkCallSuper(context, node);
+                return super.visitFunction(node);
             }
         };
     }
 
     private static void checkCallSuper(@NonNull JavaContext context,
-            @NonNull PsiMethod method) {
+            @NonNull UFunction method) {
 
-        PsiMethod superMethod = getRequiredSuperMethod(context, method);
-        if (superMethod != null) {
-            if (!SuperCallVisitor.callsSuper(method, superMethod)) {
-                String methodName = method.getName();
+        UFunction superFunction = getRequiredSuperFunction(context, method);
+        if (superFunction != null) {
+            if (!SuperCallVisitor.callsSuper(method, superFunction, context)) {
+                String functionName = method.getName();
                 String message = "Overriding method should call `super."
-                        + methodName + "`";
-                Location location = context.getNameLocation(method);
+                        + functionName + "`";
+                Location location = context.getLocation(method.getNameElement());
                 context.report(ISSUE, method, location, message);
             }
         }
@@ -111,12 +115,11 @@ public class CallSuperDetector extends Detector implements JavaPsiScanner {
      * to be invoked, and if so, returns it (otherwise returns null)
      */
     @Nullable
-    private static PsiMethod getRequiredSuperMethod(@NonNull JavaContext context,
-            @NonNull PsiMethod method) {
+    private static UFunction getRequiredSuperFunction(@NonNull JavaContext context,
+            @NonNull UFunction method) {
 
-        JavaEvaluator evaluator = context.getEvaluator();
-        PsiMethod directSuper = evaluator.getSuperMethod(method);
-        if (directSuper == null) {
+        List<UFunction> superFunctions = method.getSuperFunctions(context);
+        if (superFunctions.isEmpty()) {
             return null;
         }
 
@@ -127,69 +130,70 @@ public class CallSuperDetector extends Detector implements JavaPsiScanner {
             // is still dangerous if supporting older versions so flag
             // this for now (should make annotation carry metadata like
             // compileSdkVersion >= N).
-            if (!evaluator.isMemberInSubClassOf(method, CLASS_VIEW, false)) {
+            if (!UastUtils.getContainingClassOrEmpty(method).isSubclassOf(CLASS_VIEW, false)) {
                 return null;
             }
-            return directSuper;
+            return superFunctions.get(0);
         } else if (ON_VISIBILITY_CHANGED.equals(name)) {
             // From Android Wear API; doesn't yet have an annotation
             // but we want to enforce this right away until the AAR
             // is updated to supply it once @CallSuper is available in
             // the support library
-            if (!evaluator.isMemberInSubClassOf(method,
+            if (!JavaEvaluator.isMemberInSubClassOf(method,
                     "android.support.wearable.watchface.WatchFaceService.Engine", false)) {
                 return null;
             }
-            return directSuper;
+            return superFunctions.get(0);
         }
 
         // Look up annotations metadata
-        PsiMethod superMethod = directSuper;
-        while (superMethod != null) {
-            PsiAnnotation[] annotations = superMethod.getModifierList().getAnnotations();
-            annotations = filterRelevantAnnotations(annotations);
-            for (PsiAnnotation annotation : annotations) {
-                String signature = annotation.getQualifiedName();
+        for (UFunction superFunction : superFunctions) {
+            List<UAnnotation> annotations = filterRelevantAnnotations(superFunction.getAnnotations(),
+                    context);
+            for (UAnnotation annotation : annotations) {
+                String signature = annotation.getFqName();
                 if (CALL_SUPER_ANNOTATION.equals(signature)) {
-                    return directSuper;
+                    return superFunction;
                 } else if (signature != null && signature.endsWith(".OverrideMustInvoke")) {
                     // Handle findbugs annotation on the fly too
-                    return directSuper;
+                    return superFunction;
                 }
             }
-            superMethod = evaluator.getSuperMethod(superMethod);
         }
 
         return null;
     }
 
     /** Visits a method and determines whether the method calls its super method */
-    private static class SuperCallVisitor extends JavaRecursiveElementVisitor {
-        private final PsiMethod mMethod;
+    private static class SuperCallVisitor extends AbstractUastVisitor {
+        private final UastContext mContext;
+        private final UFunction mMethod;
         private boolean mCallsSuper;
 
-        public static boolean callsSuper(@NonNull PsiMethod method,
-                @NonNull PsiMethod superMethod) {
-            SuperCallVisitor visitor = new SuperCallVisitor(superMethod);
+        public static boolean callsSuper(@NonNull UFunction method,
+                @NonNull UFunction superMethod,
+                @NonNull  UastContext context) {
+            SuperCallVisitor visitor = new SuperCallVisitor(superMethod, context);
             method.accept(visitor);
             return visitor.mCallsSuper;
         }
 
-        private SuperCallVisitor(@NonNull PsiMethod method) {
+        private SuperCallVisitor(@NonNull UFunction method, UastContext context) {
             mMethod = method;
+            mContext = context;
         }
 
         @Override
-        public void visitSuperExpression(PsiSuperExpression node) {
-            super.visitSuperExpression(node);
-
-            PsiElement parent = skipParentheses(node.getParent());
-            if (parent instanceof PsiReferenceExpression) {
-                PsiElement resolved = ((PsiReferenceExpression) parent).resolve();
+        public boolean visitSuperExpression(USuperExpression node) {
+            UElement parent = skipParentheses(node.getParent());
+            if (parent instanceof UResolvable) {
+                UDeclaration resolved = ((UResolvable) parent).resolve(mContext);
                 if (mMethod.equals(resolved)) {
                     mCallsSuper = true;
                 }
             }
+
+            return super.visitSuperExpression(node);
         }
     }
 }

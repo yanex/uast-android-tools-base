@@ -36,6 +36,12 @@ import com.intellij.psi.PsiParameterList;
 import com.intellij.psi.PsiReference;
 import com.intellij.psi.PsiType;
 
+import org.jetbrains.uast.UClass;
+import org.jetbrains.uast.UDeclaration;
+import org.jetbrains.uast.UFunction;
+import org.jetbrains.uast.UVariable;
+import org.jetbrains.uast.UastUtils;
+
 import java.io.File;
 
 @SuppressWarnings("MethodMayBeStatic") // Some of these methods may be overridden by LintClients
@@ -58,6 +64,14 @@ public abstract class JavaEvaluator {
         return containingClass != null && extendsClass(containingClass, className, strict);
     }
 
+    public static boolean isMemberInSubClassOf(
+            @NonNull UDeclaration declaration,
+            @NonNull String className,
+            boolean strict) {
+        UClass containingClass = UastUtils.getContainingClass(declaration);
+        return containingClass != null && containingClass.isSubclassOf(className, strict);
+    }
+
     public boolean isMemberInClass(
             @Nullable PsiMember method,
             @NonNull String className) {
@@ -66,6 +80,16 @@ public abstract class JavaEvaluator {
         }
         PsiClass containingClass = method.getContainingClass();
         return containingClass != null && className.equals(containingClass.getQualifiedName());
+    }
+
+    public static boolean isMemberInClass(
+            @Nullable UDeclaration declaration,
+            @NonNull String className) {
+        if (declaration == null) {
+            return false;
+        }
+        UClass containingClass = UastUtils.getContainingClass(declaration);
+        return containingClass != null && containingClass.matchesFqName(className);
     }
 
     public int getParameterCount(@NonNull PsiMethod method) {
@@ -148,6 +172,24 @@ public abstract class JavaEvaluator {
         return parameterList.getParametersCount() > parameterIndex
                 && typeMatches(parameterList.getParameters()[parameterIndex].getType(), typeName);
     }
+
+    /** Returns true if the given type matches the given fully qualified type name */
+    public static boolean parameterHasType(
+            @Nullable UFunction function,
+            int parameterIndex,
+            @NonNull String typeName) {
+        if (function == null) {
+            return false;
+        }
+
+        if (function.getValueParameterCount() <= parameterIndex) {
+            return false;
+        }
+
+        UVariable param = function.getValueParameters().get(parameterIndex);
+        return param.getType().matchesFqName(typeName);
+    }
+
 
     /** Returns true if the given type matches the given fully qualified type name */
     public boolean typeMatches(

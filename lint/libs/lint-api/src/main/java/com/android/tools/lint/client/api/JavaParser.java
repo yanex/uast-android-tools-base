@@ -29,11 +29,15 @@ import com.android.tools.lint.detector.api.Location;
 import com.android.tools.lint.detector.api.Position;
 import com.google.common.annotations.Beta;
 import com.google.common.base.Splitter;
+import com.intellij.mock.MockProject;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiJavaFile;
 import com.intellij.psi.PsiType;
+
+import org.jetbrains.uast.UFile;
+import org.jetbrains.uast.UastLanguagePlugin;
 
 import java.io.File;
 import java.lang.reflect.Modifier;
@@ -83,6 +87,16 @@ public abstract class JavaParser {
     public static final String TYPE_DOUBLE_WRAPPER = "java.lang.Double";
     public static final String TYPE_FLOAT_WRAPPER = "java.lang.Float";
     public static final String TYPE_CHARACTER_WRAPPER = "java.lang.Character";
+
+    @NonNull
+    public List<UastLanguagePlugin> getLanguagePlugins() {
+        return Collections.emptyList();
+    }
+
+    @Nullable
+    public MockProject getIdeaProject() {
+        return null;
+    }
 
     /**
      * Prepare to parse the given contexts. This method will be called before
@@ -341,6 +355,14 @@ public abstract class JavaParser {
      * @param compilationUnit the compilation unit being disposed
      */
     public void dispose(@NonNull JavaContext context, @NonNull PsiJavaFile compilationUnit) {
+    }
+
+    /**
+     * Dispose any data structures held for the given context.
+     * @param context information about the file previously parsed
+     * @param compilationUnit the compilation unit being disposed
+     */
+    public void dispose(@NonNull JavaContext context, @NonNull UFile compilationUnit) {
     }
 
     /**

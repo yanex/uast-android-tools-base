@@ -29,6 +29,8 @@ import com.android.tools.lint.client.api.LintDriver;
 import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
 import com.google.common.collect.Iterators;
 import com.intellij.openapi.util.TextRange;
+import com.intellij.openapi.vfs.VfsUtilCore;
+import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiAnnotation;
 import com.intellij.psi.PsiAnonymousClass;
 import com.intellij.psi.PsiClass;
@@ -36,6 +38,7 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiEnumConstant;
 import com.intellij.psi.PsiExpression;
 import com.intellij.psi.PsiField;
+import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiJavaCodeReferenceElement;
 import com.intellij.psi.PsiJavaFile;
 import com.intellij.psi.PsiLabeledStatement;
@@ -45,10 +48,22 @@ import com.intellij.psi.PsiMethodCallExpression;
 import com.intellij.psi.PsiNewExpression;
 import com.intellij.psi.PsiReferenceExpression;
 import com.intellij.psi.PsiSwitchStatement;
+import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.PsiTreeUtil;
+
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.uast.UCallExpression;
+import org.jetbrains.uast.UElement;
+import org.jetbrains.uast.UFile;
+import org.jetbrains.uast.USimpleReferenceExpression;
+import org.jetbrains.uast.UastCallKind;
+import org.jetbrains.uast.UastContext;
+import org.jetbrains.uast.UastLanguagePlugin;
+import org.jetbrains.uast.psi.PsiElementBacked;
 
 import java.io.File;
 import java.util.Iterator;
+import java.util.List;
 
 import lombok.ast.AnnotationElement;
 import lombok.ast.AnnotationMethodDeclaration;
@@ -71,7 +86,7 @@ import lombok.ast.VariableReference;
  * <b>NOTE: This is not a public or final API; if you rely on this be prepared
  * to adjust your code for the next tools release.</b>
  */
-public class JavaContext extends Context {
+public class JavaContext extends Context implements UastContext {
     static final String SUPPRESS_COMMENT_PREFIX = "//noinspection "; //$NON-NLS-1$
 
     /**
@@ -83,7 +98,10 @@ public class JavaContext extends Context {
     private Node mCompilationUnit;
 
     /** The parse tree */
+    @Deprecated
     private PsiJavaFile mJavaFile;
+
+    private UFile mUFile;
 
     /** The parser which produced the parse tree */
     private final JavaParser mParser;
@@ -110,6 +128,7 @@ public class JavaContext extends Context {
             @NonNull JavaParser parser) {
         super(driver, project, main, file);
         mParser = parser;
+
     }
 
     /**
@@ -121,6 +140,21 @@ public class JavaContext extends Context {
     @NonNull
     public Location getLocation(@NonNull Node node) {
         return mParser.getLocation(this, node);
+    }
+
+    @Nullable
+    public GlobalSearchScope getSearchScope() {
+        UFile file = mUFile;
+        if (!(file instanceof PsiElementBacked)) {
+            return null;
+        }
+
+        PsiElement psi = ((PsiElementBacked) file).getPsi();
+        if (psi == null) {
+            return null;
+        }
+
+        return psi.getResolveScope();
     }
 
     /**
@@ -198,6 +232,37 @@ public class JavaContext extends Context {
         return mParser.getLocation(this, node);
     }
 
+    @NotNull
+    public Location getLocation(@Nullable UElement node) {
+        if (node == null) {
+            return Location.NONE;
+        }
+
+        if (node.isValid() && node instanceof PsiElementBacked) {
+            PsiElement psiElement = ((PsiElementBacked) node).getPsi();
+            if (psiElement == null) {
+                return Location.NONE;
+            }
+
+            PsiFile psiFile = psiElement.getContainingFile();
+            if (psiFile == null) {
+                return Location.NONE;
+            }
+
+            VirtualFile vfile = psiFile.getVirtualFile();
+            File file = VfsUtilCore.virtualToIoFile(vfile);
+            TextRange range = psiElement.getTextRange();
+            if (range == null) {
+                return Location.NONE;
+            }
+
+            return Location.create(file, psiFile.getText(),
+                    range.getStartOffset(), range.getEndOffset());
+        }
+
+        return Location.NONE;
+    }
+
     @NonNull
     public JavaParser getParser() {
         return mParser;
@@ -211,6 +276,18 @@ public class JavaContext extends Context {
     @Nullable
     public Node getCompilationUnit() {
         return mCompilationUnit;
+    }
+
+    @NotNull
+    @Override
+    public List<UastLanguagePlugin> getLanguagePlugins() {
+        return mParser.getLanguagePlugins();
+    }
+
+    @Nullable
+    @Override
+    public UElement convert(Object o) {
+        return UastContext.DefaultImpls.convert(this, o);
     }
 
     /**
@@ -234,6 +311,16 @@ public class JavaContext extends Context {
     }
 
     /**
+     * Returns the {@link UFile}.
+     *
+     * @return the parsed UFile
+     */
+    @Nullable
+    public UFile getUFile() {
+        return mUFile;
+    }
+
+    /**
      * Sets the compilation result. Not intended for client usage; the lint infrastructure
      * will set this when a context has been processed
      *
@@ -241,6 +328,16 @@ public class JavaContext extends Context {
      */
     public void setJavaFile(@Nullable PsiJavaFile javaFile) {
         mJavaFile = javaFile;
+    }
+
+    /**
+     * Sets the compilation result. Not intended for client usage; the lint infrastructure
+     * will set this when a context has been processed
+     *
+     * @param file the parse tree
+     */
+    public void setUFile(@Nullable UFile file) {
+        mUFile = file;
     }
 
     @Override
@@ -277,6 +374,17 @@ public class JavaContext extends Context {
     public void report(
             @NonNull Issue issue,
             @Nullable PsiElement scope,
+            @NonNull Location location,
+            @NonNull String message) {
+        if (scope != null && mDriver.isSuppressed(this, issue, scope)) {
+            return;
+        }
+        super.report(issue, location, message);
+    }
+
+    public void report(
+            @NonNull Issue issue,
+            @Nullable UElement scope,
             @NonNull Location location,
             @NonNull String message) {
         if (scope != null && mDriver.isSuppressed(this, issue, scope)) {
@@ -381,6 +489,23 @@ public class JavaContext extends Context {
         return isSuppressedWithComment(start, issue);
     }
 
+    public boolean isSuppressedWithComment(
+            @NonNull Issue issue,
+            @Nullable Location location) {
+        if (location == null) {
+            return false;
+        }
+        com.android.tools.lint.detector.api.Position start = location.getStart();
+        if (start == null) {
+            return false;
+        }
+
+        // Check whether there is a comment marker
+        String contents = getContents();
+        assert contents != null; // otherwise we wouldn't be here
+        return isSuppressedWithComment(start.getOffset(), issue);
+    }
+
     /**
      * @deprecated Location handles aren't needed for AST nodes anymore; just use the
      * {@link PsiElement} from the AST
@@ -452,6 +577,25 @@ public class JavaContext extends Context {
         } else {
             return null;
         }
+    }
+
+    @Nullable
+    public static String getMethodName(@NonNull UElement node) {
+        if (node instanceof UCallExpression) {
+            UCallExpression call = (UCallExpression) node;
+            if (call.getKind() == UastCallKind.FUNCTION_CALL) {
+                return call.getFunctionName();
+            } else if (call.getKind() == UastCallKind.CONSTRUCTOR_CALL) {
+                USimpleReferenceExpression classReference = call.getClassReference();
+                if (classReference != null) {
+                    return classReference.getIdentifier();
+                }
+            }
+        } else if (node instanceof PsiEnumConstant) {
+            return ((PsiEnumConstant)node).getName();
+        }
+
+        return null;
     }
 
     /**

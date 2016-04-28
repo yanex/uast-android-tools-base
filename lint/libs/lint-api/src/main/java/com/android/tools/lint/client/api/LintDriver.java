@@ -80,6 +80,14 @@ import com.intellij.psi.PsiModifierList;
 import com.intellij.psi.PsiModifierListOwner;
 import com.intellij.psi.PsiNameValuePair;
 
+import org.jetbrains.uast.UAnnotated;
+import org.jetbrains.uast.UAnnotation;
+import org.jetbrains.uast.UCallExpression;
+import org.jetbrains.uast.UElement;
+import org.jetbrains.uast.UExpression;
+import org.jetbrains.uast.ULiteralExpression;
+import org.jetbrains.uast.UNamedExpression;
+import org.jetbrains.uast.UastCallKind;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.AbstractInsnNode;
@@ -93,8 +101,10 @@ import org.objectweb.asm.tree.MethodNode;
 import org.w3c.dom.Attr;
 import org.w3c.dom.Element;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
+import java.io.PrintStream;
 import java.net.URL;
 import java.net.URLConnection;
 import java.util.ArrayDeque;
@@ -392,6 +402,8 @@ public class LintDriver {
         try {
             mRequest = request;
             analyze();
+        } catch (Throwable e) {
+            throw new RuntimeException(e);
         } finally {
             mRequest = null;
         }
@@ -679,16 +691,18 @@ public class LintDriver {
             if (javaCodeDetectors != null) {
                 for (Detector detector : javaCodeDetectors) {
                     assert detector instanceof Detector.JavaScanner ||
+                            detector instanceof Detector.JavaPsiScanner ||
                             // TODO: Migrate all
-                            detector instanceof Detector.JavaPsiScanner : detector;
+                            detector instanceof Detector.UastScanner : detector;
                 }
             }
             List<Detector> javaFileDetectors = mScopeDetectors.get(Scope.JAVA_FILE);
             if (javaFileDetectors != null) {
                 for (Detector detector : javaFileDetectors) {
                     assert detector instanceof Detector.JavaScanner ||
+                            detector instanceof Detector.JavaPsiScanner ||
                             // TODO: Migrate all
-                            detector instanceof Detector.JavaPsiScanner : detector;
+                            detector instanceof Detector.UastScanner : detector;
                 }
             }
 
@@ -1556,10 +1570,13 @@ public class LintDriver {
         // Temporary: we still have some builtin checks that aren't migrated to
         // PSI. Until that's complete, remove them from the list here
         //List<Detector> scanners = checks;
-        List<Detector> scanners = Lists.newArrayListWithCapacity(checks.size());
+        List<Detector> scanners = Lists.newArrayListWithCapacity(0);
+        List<Detector> uastScanners = Lists.newArrayListWithCapacity(checks.size());
         for (Detector detector : checks) {
             if (detector instanceof Detector.JavaPsiScanner) {
                 scanners.add(detector);
+            } else if (detector instanceof Detector.UastScanner) {
+                uastScanners.add(detector);
             }
         }
 
@@ -1572,8 +1589,18 @@ public class LintDriver {
                 return;
             }
         }
-
         visitor.dispose();
+
+        UElementVisitor uElementVisitor = new UElementVisitor(javaParser, uastScanners);
+        uElementVisitor.prepare(contexts);
+        for (JavaContext context : contexts) {
+            fireEvent(EventType.SCANNING_FILE, context);
+            uElementVisitor.visitFile(context);
+            if (mCanceled) {
+                return;
+            }
+        }
+        uElementVisitor.dispose();
 
         // Only if the user is using some custom lint rules that haven't been updated
         // yet
@@ -2601,6 +2628,31 @@ public class LintDriver {
         return false;
     }
 
+    public boolean isSuppressed(@Nullable JavaContext context, @NonNull Issue issue,
+            @Nullable UElement scope) {
+        boolean checkComments = mClient.checkForSuppressComments() &&
+                context != null && context.containsCommentSuppress();
+        while (scope != null) {
+            if (scope instanceof UAnnotated) {
+                UAnnotated owner = (UAnnotated) scope;
+                if (isSuppressedUast(issue, owner.getAnnotations())) {
+                    return true;
+                }
+            }
+
+            if (context != null) {
+                Location location = context.getLocation(scope);
+                if (checkComments && context.isSuppressedWithComment(issue, location)) {
+                    return true;
+                }
+            }
+
+            scope = scope.getParent();
+        }
+
+        return false;
+    }
+
     /**
      * Returns true if the given AST modifier has a suppress annotation for the
      * given issue (which can be null to check for the "all" annotation)
@@ -2698,6 +2750,38 @@ public class LintDriver {
     }
 
     /**
+     * Returns true if the given AST modifier has a suppress annotation for the
+     * given issue (which can be null to check for the "all" annotation)
+     *
+     * @param issue the issue to be checked
+     * @param annotations list of annotations to check
+     * @return true if the issue or all issues should be suppressed for this
+     *         modifier
+     */
+    public static boolean isSuppressedUast(@NonNull Issue issue,
+            @Nullable List<UAnnotation> annotations) {
+        if (annotations == null) {
+            return false;
+        }
+
+        for (UAnnotation annotation : annotations) {
+            String fqcn = annotation.getFqName();
+            if (fqcn != null && (fqcn.equals(FQCN_SUPPRESS_LINT)
+                    || fqcn.equals(SUPPRESS_WARNINGS_FQCN)
+                    || fqcn.equals(SUPPRESS_LINT))) { // when missing imports
+
+                for (UNamedExpression expr : annotation.getValueArguments()) {
+                    if (isSuppressed(issue, expr.getExpression())) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Returns true if the annotation member value, assumed to be specified on a a SuppressWarnings
      * or SuppressLint annotation, specifies the given id (or "all").
      *
@@ -2727,6 +2811,37 @@ public class LintDriver {
             PsiExpression[] initializers = expression.getInitializers();
             for (PsiExpression e : initializers) {
                 if (isSuppressed(issue, e)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Returns true if the annotation member value, assumed to be specified on a a SuppressWarnings
+     * or SuppressLint annotation, specifies the given id (or "all").
+     *
+     * @param issue the issue to be checked
+     * @param value     the member value to check
+     * @return true if the issue or all issues should be suppressed for this modifier
+     */
+    public static boolean isSuppressed(@NonNull Issue issue,
+            @Nullable UExpression value) {
+        if (value instanceof ULiteralExpression) {
+            ULiteralExpression literal = (ULiteralExpression)value;
+            Object literalValue = literal.getValue();
+            if (literalValue instanceof String) {
+                if (isSuppressed(issue, (String) literalValue)) {
+                    return true;
+                }
+            }
+        } else if (value instanceof UCallExpression
+                && ((UCallExpression) value).getKind() == UastCallKind.ARRAY_INITIALIZER) {
+            UCallExpression callExpression = (UCallExpression)value;
+            for (UExpression mmv : callExpression.getValueArguments()) {
+                if (isSuppressed(issue, mmv)) {
                     return true;
                 }
             }

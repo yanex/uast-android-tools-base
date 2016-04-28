@@ -34,9 +34,8 @@ import com.android.annotations.Nullable;
 import com.android.builder.model.AndroidProject;
 import com.android.builder.model.ProductFlavorContainer;
 import com.android.builder.model.SourceProviderContainer;
-import com.android.tools.lint.client.api.JavaEvaluator;
 import com.android.tools.lint.detector.api.Category;
-import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
+import com.android.tools.lint.detector.api.Detector;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
@@ -47,8 +46,9 @@ import com.android.tools.lint.detector.api.Severity;
 import com.android.tools.lint.detector.api.XmlContext;
 import com.android.utils.SdkUtils;
 import com.google.common.collect.Maps;
-import com.intellij.psi.PsiClass;
 
+import org.jetbrains.uast.UClass;
+import org.jetbrains.uast.UastModifier;
 import org.w3c.dom.Element;
 
 import java.io.File;
@@ -62,7 +62,7 @@ import java.util.Map;
  * Checks for missing manifest registrations for activities, services etc
  * and also makes sure that they are registered with the correct tag
  */
-public class RegistrationDetector extends LayoutDetector implements JavaPsiScanner {
+public class RegistrationDetector extends LayoutDetector implements Detector.UastScanner {
     /** Unregistered activities and services */
     public static final Issue ISSUE = Issue.create(
             "Registered", //$NON-NLS-1$
@@ -142,7 +142,7 @@ public class RegistrationDetector extends LayoutDetector implements JavaPsiScann
         return className;
     }
 
-    // ---- Implements JavaScanner ----
+    // ---- Implements UastScanner ----
 
     @Nullable
     @Override
@@ -156,25 +156,24 @@ public class RegistrationDetector extends LayoutDetector implements JavaPsiScann
     }
 
     @Override
-    public void checkClass(@NonNull JavaContext context, @NonNull PsiClass cls) {
-        if (cls.getName() == null) {
+    public void checkClass(@NonNull JavaContext context, @NonNull UClass cls) {
+        if (cls.isAnonymous()) {
             // anonymous class; can't be registered
             return;
         }
 
-        JavaEvaluator evaluator = context.getEvaluator();
-        if (evaluator.isAbstract(cls) || evaluator.isPrivate(cls)) {
+        if (cls.getVisibility().isPrivate() || cls.hasModifier(UastModifier.ABSTRACT)) {
             // Abstract classes do not need to be registered, and
             // private classes are clearly not intended to be registered
             return;
         }
 
-        String rightTag = getTag(evaluator, cls);
+        String rightTag = getTag(cls);
         if (rightTag == null) {
             // some non-registered Context, such as a BackupAgent
             return;
         }
-        String className = cls.getQualifiedName();
+        String className = cls.getFqName();
         if (className == null) {
             return;
         }
@@ -182,7 +181,7 @@ public class RegistrationDetector extends LayoutDetector implements JavaPsiScann
             String framework = mManifestRegistrations.get(className);
             if (framework == null) {
                 reportMissing(context, cls, className, rightTag);
-            } else if (!evaluator.extendsClass(cls, framework, false)) {
+            } else if (!cls.isSubclassOf(framework, false)) {
                 reportWrongTag(context, cls, rightTag, className, framework);
             }
         } else {
@@ -192,7 +191,7 @@ public class RegistrationDetector extends LayoutDetector implements JavaPsiScann
 
     private static void reportWrongTag(
             @NonNull JavaContext context,
-            @NonNull PsiClass node,
+            @NonNull UClass node,
             @NonNull String rightTag,
             @NonNull String className,
             @NonNull String framework) {
@@ -200,7 +199,7 @@ public class RegistrationDetector extends LayoutDetector implements JavaPsiScann
         if (wrongTag == null) {
             return;
         }
-        Location location = context.getNameLocation(node);
+        Location location = context.getLocation(node.getNameElement());
         String message = String.format("`%1$s` is %2$s but is registered "
                         + "in the manifest as %3$s", className, describeTag(rightTag),
                 describeTag(wrongTag));
@@ -214,7 +213,7 @@ public class RegistrationDetector extends LayoutDetector implements JavaPsiScann
 
     private static void reportMissing(
             @NonNull JavaContext context,
-            @NonNull PsiClass node,
+            @NonNull UClass node,
             @NonNull String className,
             @NonNull String tag) {
         if (tag.equals(TAG_RECEIVER)) {
@@ -255,16 +254,16 @@ public class RegistrationDetector extends LayoutDetector implements JavaPsiScann
             }
         }
 
-        Location location = context.getNameLocation(node);
+        Location location = context.getLocation(node.getNameElement());
         String message = String.format("The `<%1$s> %2$s` is not registered in the manifest",
                 tag, className);
         context.report(ISSUE, node, location, message);
     }
 
-    private static String getTag(@NonNull JavaEvaluator evaluator, @NonNull PsiClass cls) {
+    private static String getTag(@NonNull UClass cls) {
         String tag = null;
         for (String s : sClasses) {
-            if (evaluator.extendsClass(cls, s, false)) {
+            if (cls.isSubclassOf(s, false)) {
                 tag = classToTag(s);
                 break;
             }

@@ -28,9 +28,10 @@ import static com.android.SdkConstants.VIEW_INCLUDE;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.resources.ResourceType;
+import com.android.tools.lint.client.api.UastLintUtils;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Context;
-import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
+import com.android.tools.lint.detector.api.Detector;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
@@ -42,12 +43,12 @@ import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
 import com.android.tools.lint.detector.api.XmlContext;
 import com.android.utils.Pair;
-import com.intellij.psi.JavaElementVisitor;
-import com.intellij.psi.PsiExpression;
-import com.intellij.psi.PsiMethod;
-import com.intellij.psi.PsiMethodCallExpression;
-import com.intellij.psi.PsiReferenceExpression;
 
+import org.jetbrains.uast.UCallExpression;
+import org.jetbrains.uast.UExpression;
+import org.jetbrains.uast.UFunction;
+import org.jetbrains.uast.UQualifiedExpression;
+import org.jetbrains.uast.visitor.UastVisitor;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 
@@ -63,7 +64,7 @@ import java.util.Set;
 /**
  * Checks whether a root FrameLayout can be replaced with a {@code <merge>} tag.
  */
-public class MergeRootFrameLayoutDetector extends LayoutDetector implements JavaPsiScanner {
+public class MergeRootFrameLayoutDetector extends LayoutDetector implements Detector.UastScanner {
     /**
      * Set of layouts that we want to enable the warning for. We only warn for
      * {@code <FrameLayout>}'s that are the root of a layout included from
@@ -176,27 +177,24 @@ public class MergeRootFrameLayoutDetector extends LayoutDetector implements Java
         mWhitelistedLayouts.add(layout);
     }
 
-    // Implements JavaScanner
+    // Implements UastScanner
 
     @Override
-    public List<String> getApplicableMethodNames() {
+    public List<String> getApplicableFunctionNames() {
         return Collections.singletonList("setContentView"); //$NON-NLS-1$
     }
 
     @Override
-    public void visitMethod(@NonNull JavaContext context, @Nullable JavaElementVisitor visitor,
-            @NonNull PsiMethodCallExpression call, @NonNull PsiMethod method) {
-        PsiExpression[] expressions = call.getArgumentList().getExpressions();
-        if (expressions.length == 1 && expressions[0] instanceof PsiReferenceExpression) {
-            PsiReferenceExpression expression = (PsiReferenceExpression)expressions[0];
-            if (expression.getQualifier() instanceof PsiReferenceExpression) {
-                PsiReferenceExpression inner = (PsiReferenceExpression)expression.getQualifier();
-                if (ResourceType.LAYOUT.getName().equals(inner.getReferenceName())) {
-                    String layoutName = expression.getReferenceName();
-                    if (layoutName != null) {
-                        whiteListLayout(layoutName);
-                    }
-                }
+    public void visitFunctionCallExpression(@NonNull JavaContext context,
+            @Nullable UastVisitor visitor, @NonNull UCallExpression call,
+            @NonNull UFunction function) {
+        List<UExpression> expressions = call.getValueArguments();
+        if (expressions.size() == 1 && expressions.get(0) instanceof UQualifiedExpression) {
+            UastLintUtils.AndroidReference androidReference = UastLintUtils
+                    .toAndroidReference(((UQualifiedExpression) expressions.get(0)), context);
+
+            if (androidReference != null && androidReference.getType() == ResourceType.LAYOUT) {
+                whiteListLayout(androidReference.getName());
             }
         }
     }

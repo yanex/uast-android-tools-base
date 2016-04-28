@@ -20,6 +20,7 @@ import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.tools.lint.client.api.JavaEvaluator;
 import com.android.tools.lint.client.api.JavaParser;
+import com.android.tools.lint.client.api.UastLintUtils;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.ConstantEvaluator;
 import com.android.tools.lint.detector.api.Detector;
@@ -34,10 +35,15 @@ import com.intellij.psi.PsiExpression;
 import com.intellij.psi.PsiMethod;
 import com.intellij.psi.PsiMethodCallExpression;
 
+import org.jetbrains.uast.UCallExpression;
+import org.jetbrains.uast.UExpression;
+import org.jetbrains.uast.UFunction;
+import org.jetbrains.uast.visitor.UastVisitor;
+
 import java.util.Collections;
 import java.util.List;
 
-public class GetSignaturesDetector extends Detector implements JavaPsiScanner  {
+public class GetSignaturesDetector extends Detector implements Detector.UastScanner {
     public static final Issue ISSUE = Issue.create(
             "PackageManagerGetSignatures", //$NON-NLS-1$
             "Potential Multiple Certificate Exploit",
@@ -59,38 +65,40 @@ public class GetSignaturesDetector extends Detector implements JavaPsiScanner  {
     private static final String GET_PACKAGE_INFO = "getPackageInfo"; //$NON-NLS-1$
     private static final int GET_SIGNATURES_FLAG = 0x00000040; //$NON-NLS-1$
 
-    // ---- Implements JavaScanner ----
+    // ---- Implements UastScanner ----
 
-    @Override
     @Nullable
-    public List<String> getApplicableMethodNames() {
+    @Override
+    public List<String> getApplicableFunctionNames() {
         return Collections.singletonList(GET_PACKAGE_INFO);
     }
 
     @Override
-    public void visitMethod(@NonNull JavaContext context, @Nullable JavaElementVisitor visitor,
-            @NonNull PsiMethodCallExpression node, @NonNull PsiMethod method) {
-        JavaEvaluator evaluator = context.getEvaluator();
-        if (!evaluator.methodMatches(method, PACKAGE_MANAGER_CLASS, true,
+    public void visitFunctionCallExpression(@NonNull JavaContext context,
+            @Nullable UastVisitor visitor, @NonNull UCallExpression call,
+            @NonNull UFunction function) {
+        if (!UastLintUtils.functionMatches(function, PACKAGE_MANAGER_CLASS, true,
                 JavaParser.TYPE_STRING,
                 JavaParser.TYPE_INT)) {
             return;
         }
 
-        PsiExpression[] arguments = node.getArgumentList().getExpressions();
-        if (arguments.length == 2) {
-            PsiExpression second = arguments[1];
-            Object number = ConstantEvaluator.evaluate(context, second);
-            if (number instanceof Number) {
-                int flagValue = ((Number)number).intValue();
-                maybeReportIssue(flagValue, context, node, second);
-            }
+        if (call.getValueArgumentCount() != 2) {
+            return;
+        }
+
+        List<UExpression> arguments = call.getValueArguments();
+        UExpression second = arguments.get(1);
+        Object number = ConstantEvaluator.evaluate(context, second);
+        if (number instanceof Number) {
+            int flagValue = ((Number)number).intValue();
+            maybeReportIssue(flagValue, context, call, second);
         }
     }
 
     private static void maybeReportIssue(
-            int flagValue, JavaContext context, PsiMethodCallExpression node,
-            PsiExpression last) {
+            int flagValue, JavaContext context, UCallExpression node,
+            UExpression last) {
         if ((flagValue & GET_SIGNATURES_FLAG) != 0) {
             context.report(ISSUE, node, context.getLocation(last),
                 "Reading app signatures from getPackageInfo: The app signatures "

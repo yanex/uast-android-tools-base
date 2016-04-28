@@ -21,23 +21,20 @@ import static com.android.tools.lint.checks.CleanupDetector.CURSOR_CLS;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.android.tools.lint.client.api.JavaEvaluator;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Detector;
-import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
-import com.android.tools.lint.detector.api.TypeEvaluator;
-import com.intellij.psi.JavaElementVisitor;
-import com.intellij.psi.PsiClass;
-import com.intellij.psi.PsiClassType;
-import com.intellij.psi.PsiExpression;
-import com.intellij.psi.PsiMethod;
-import com.intellij.psi.PsiMethodCallExpression;
-import com.intellij.psi.PsiType;
+
+import org.jetbrains.uast.UCallExpression;
+import org.jetbrains.uast.UClass;
+import org.jetbrains.uast.UExpression;
+import org.jetbrains.uast.UFunction;
+import org.jetbrains.uast.UType;
+import org.jetbrains.uast.visitor.UastVisitor;
 
 import java.util.Collections;
 import java.util.List;
@@ -45,7 +42,7 @@ import java.util.List;
 /**
  * Checks for missing view tag detectors
  */
-public class ViewTagDetector extends Detector implements JavaPsiScanner {
+public class ViewTagDetector extends Detector implements Detector.UastScanner {
     /** Using setTag and leaking memory */
     public static final Issue ISSUE = Issue.create(
             "ViewTag", //$NON-NLS-1$
@@ -74,48 +71,48 @@ public class ViewTagDetector extends Detector implements JavaPsiScanner {
 
     @Nullable
     @Override
-    public List<String> getApplicableMethodNames() {
+    public List<String> getApplicableFunctionNames() {
         return Collections.singletonList("setTag");
     }
 
     @Override
-    public void visitMethod(@NonNull JavaContext context, @Nullable JavaElementVisitor visitor,
-            @NonNull PsiMethodCallExpression call, @NonNull PsiMethod method) {
+    public void visitFunctionCallExpression(@NonNull JavaContext context,
+            @Nullable UastVisitor visitor, @NonNull UCallExpression call,
+            @NonNull UFunction function) {
         // The leak behavior is fixed in ICS:
         // http://code.google.com/p/android/issues/detail?id=18273
         if (context.getMainProject().getMinSdk() >= 14) {
             return;
         }
 
-        JavaEvaluator evaluator = context.getEvaluator();
-        if (!evaluator.isMemberInSubClassOf(method, CLASS_VIEW, false)) {
+        if (!function.matchesNameWithContaining(CLASS_VIEW, "setTag")) {
             return;
         }
 
-        PsiExpression[] arguments = call.getArgumentList().getExpressions();
-        if (arguments.length != 2) {
+        List<UExpression> arguments = call.getValueArguments();
+        if (arguments.size() != 2) {
             return;
         }
-        PsiExpression tagArgument = arguments[1];
+        UExpression tagArgument = arguments.get(1);
         if (tagArgument == null) {
             return;
         }
 
-        PsiType type = TypeEvaluator.evaluate(context, tagArgument);
-        if ((!(type instanceof PsiClassType))) {
+        UType type = tagArgument.getExpressionType();
+        if (type == null) {
             return;
         }
-        PsiClass typeClass = ((PsiClassType) type).resolve();
+        UClass typeClass = type.resolve(context);
         if (typeClass == null) {
             return;
         }
 
         String objectType;
-        if (evaluator.extendsClass(typeClass, CLASS_VIEW, false)) {
+        if (typeClass.isSubclassOf(CLASS_VIEW, false)) {
             objectType = "views";
-        } else if (evaluator.implementsInterface(typeClass, CURSOR_CLS, false)) {
+        } else if (typeClass.isSubclassOf(CURSOR_CLS, false)) {
             objectType = "cursors";
-        } else if (typeClass.getName() != null && typeClass.getName().endsWith("ViewHolder")) {
+        } else if (typeClass.getName().endsWith("ViewHolder")) {
             objectType = "view holders";
         } else {
             return;
@@ -125,5 +122,6 @@ public class ViewTagDetector extends Detector implements JavaPsiScanner {
                 objectType);
 
         context.report(ISSUE, call, context.getLocation(tagArgument), message);
+
     }
 }
