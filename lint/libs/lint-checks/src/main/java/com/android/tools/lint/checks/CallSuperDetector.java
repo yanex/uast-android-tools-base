@@ -37,10 +37,10 @@ import org.jetbrains.uast.UAnnotation;
 import org.jetbrains.uast.UDeclaration;
 import org.jetbrains.uast.UElement;
 import org.jetbrains.uast.UFunction;
-import org.jetbrains.uast.UResolvable;
 import org.jetbrains.uast.USuperExpression;
 import org.jetbrains.uast.UastContext;
 import org.jetbrains.uast.UastUtils;
+import org.jetbrains.uast.expressions.UReferenceExpression;
 import org.jetbrains.uast.visitor.AbstractUastVisitor;
 import org.jetbrains.uast.visitor.UastVisitor;
 
@@ -118,7 +118,7 @@ public class CallSuperDetector extends Detector implements Detector.UastScanner 
     private static UFunction getRequiredSuperFunction(@NonNull JavaContext context,
             @NonNull UFunction method) {
 
-        List<UFunction> superFunctions = method.getSuperFunctions(context);
+        List<UFunction> superFunctions = method.getOverriddenDeclarations(context);
         if (superFunctions.isEmpty()) {
             return null;
         }
@@ -186,8 +186,8 @@ public class CallSuperDetector extends Detector implements Detector.UastScanner 
         @Override
         public boolean visitSuperExpression(USuperExpression node) {
             UElement parent = skipParentheses(node.getParent());
-            if (parent instanceof UResolvable) {
-                UDeclaration resolved = ((UResolvable) parent).resolve(mContext);
+            if (parent instanceof UReferenceExpression) {
+                UDeclaration resolved = ((UReferenceExpression) parent).resolve(mContext);
                 if (mMethod.equals(resolved)) {
                     mCallsSuper = true;
                 }

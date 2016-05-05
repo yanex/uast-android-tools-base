@@ -66,14 +66,18 @@ import org.jetbrains.uast.UBinaryExpression;
 import org.jetbrains.uast.UBinaryExpressionWithType;
 import org.jetbrains.uast.UBlockExpression;
 import org.jetbrains.uast.UCallExpression;
+import org.jetbrains.uast.UConstantValue;
 import org.jetbrains.uast.UDeclaration;
 import org.jetbrains.uast.UElement;
+import org.jetbrains.uast.UEnumValue;
 import org.jetbrains.uast.UExpression;
+import org.jetbrains.uast.UExpressionValue;
 import org.jetbrains.uast.UIfExpression;
 import org.jetbrains.uast.ULiteralExpression;
 import org.jetbrains.uast.UParenthesizedExpression;
 import org.jetbrains.uast.UPrefixExpression;
 import org.jetbrains.uast.UResolvable;
+import org.jetbrains.uast.USimpleConstantValue;
 import org.jetbrains.uast.UType;
 import org.jetbrains.uast.UVariable;
 import org.jetbrains.uast.UastBinaryOperator;
@@ -592,6 +596,16 @@ public class ConstantEvaluator {
         // Math.* methods, String utility methods like notNullize, etc
 
         return null;
+    }
+
+    public Object evaluate(@NonNull UConstantValue<?> node) {
+        if (node instanceof USimpleConstantValue<?>) {
+            return node.getValue();
+        } else if (node instanceof UExpressionValue) {
+            return evaluate(((UExpressionValue) node).getValue());
+        } else {
+            return null;
+        }
     }
 
     /**

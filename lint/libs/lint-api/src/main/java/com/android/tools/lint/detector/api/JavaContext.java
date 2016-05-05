@@ -53,7 +53,9 @@ import com.intellij.psi.util.PsiTreeUtil;
 
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.uast.UCallExpression;
+import org.jetbrains.uast.UConstantValue;
 import org.jetbrains.uast.UElement;
+import org.jetbrains.uast.UExpressionValue;
 import org.jetbrains.uast.UFile;
 import org.jetbrains.uast.USimpleReferenceExpression;
 import org.jetbrains.uast.UastContext;
@@ -239,28 +241,46 @@ public class JavaContext extends Context implements UastContext {
         }
 
         if (node.isValid() && node instanceof PsiElementBacked) {
-            PsiElement psiElement = ((PsiElementBacked) node).getPsi();
-            if (psiElement == null) {
-                return Location.NONE;
-            }
-
-            PsiFile psiFile = psiElement.getContainingFile();
-            if (psiFile == null) {
-                return Location.NONE;
-            }
-
-            VirtualFile vfile = psiFile.getVirtualFile();
-            File file = VfsUtilCore.virtualToIoFile(vfile);
-            TextRange range = psiElement.getTextRange();
-            if (range == null) {
-                return Location.NONE;
-            }
-
-            return Location.create(file, psiFile.getText(),
-                    range.getStartOffset(), range.getEndOffset());
+            return getUastLocationFromPsi(((PsiElementBacked) node).getPsi());
         }
 
         return Location.NONE;
+    }
+
+    @NotNull
+    public Location getLocation(@Nullable UConstantValue<?> node) {
+        if (node == null) {
+            return Location.NONE;
+        }
+
+        UElement original = node.getOriginal();
+        if (original instanceof PsiElementBacked) {
+            return getUastLocationFromPsi(((PsiElementBacked) original).getPsi());
+        }
+
+        return Location.NONE;
+    }
+
+    @NonNull
+    private static Location getUastLocationFromPsi(@Nullable PsiElement psiElement) {
+        if (psiElement == null) {
+            return Location.NONE;
+        }
+
+        PsiFile psiFile = psiElement.getContainingFile();
+        if (psiFile == null) {
+            return Location.NONE;
+        }
+
+        VirtualFile vfile = psiFile.getVirtualFile();
+        File file = VfsUtilCore.virtualToIoFile(vfile);
+        TextRange range = psiElement.getTextRange();
+        if (range == null) {
+            return Location.NONE;
+        }
+
+        return Location.create(file, psiFile.getText(),
+                range.getStartOffset(), range.getEndOffset());
     }
 
     @NonNull

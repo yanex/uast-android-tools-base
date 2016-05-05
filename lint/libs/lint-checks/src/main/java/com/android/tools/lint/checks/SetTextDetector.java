@@ -31,8 +31,10 @@ import org.jetbrains.uast.UBinaryExpression;
 import org.jetbrains.uast.UCallExpression;
 import org.jetbrains.uast.UClass;
 import org.jetbrains.uast.UElement;
+import org.jetbrains.uast.UExpression;
 import org.jetbrains.uast.UFunction;
 import org.jetbrains.uast.ULiteralExpression;
+import org.jetbrains.uast.UQualifiedExpression;
 import org.jetbrains.uast.UastBinaryOperator;
 import org.jetbrains.uast.UastUtils;
 import org.jetbrains.uast.visitor.UastVisitor;
@@ -130,6 +132,10 @@ public class SetTextDetector extends Detector implements Detector.UastScanner {
                                     "Consider using `String.format` instead.");
                 }
             }
+        } else if (node instanceof UQualifiedExpression) {
+            UQualifiedExpression expression = (UQualifiedExpression) node;
+            checkNode(context, expression.getReceiver());
+            checkNode(context, expression.getSelector());
         } else if (node instanceof UBinaryExpression) {
             UBinaryExpression expression = (UBinaryExpression) node;
             if (expression.getOperator() == UastBinaryOperator.PLUS) {

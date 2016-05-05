@@ -24,6 +24,7 @@ import static com.android.SdkConstants.VALUE_FALSE;
 import static com.android.SdkConstants.VALUE_TRUE;
 import static com.android.tools.lint.checks.SupportAnnotationDetector.CHECK_RESULT_ANNOTATION;
 import static com.android.tools.lint.checks.SupportAnnotationDetector.PERMISSION_ANNOTATION;
+import static org.jetbrains.uast.util.UastConstantValueUtils.createUConstantValue;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
@@ -53,19 +54,28 @@ import com.google.common.collect.Sets;
 import com.google.common.io.ByteStreams;
 import com.google.common.io.Closeables;
 import com.google.common.io.Files;
-import com.intellij.psi.PsiAnnotation;
-import com.intellij.psi.PsiAnnotationMemberValue;
-import com.intellij.psi.PsiArrayInitializerMemberValue;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiField;
-import com.intellij.psi.PsiLiteral;
-import com.intellij.psi.PsiNameValuePair;
-import com.intellij.psi.PsiReferenceExpression;
 
 import org.eclipse.jdt.internal.compiler.lookup.FieldBinding;
 import org.eclipse.jdt.internal.compiler.lookup.MethodBinding;
 import org.eclipse.jdt.internal.compiler.lookup.PackageBinding;
 import org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding;
+import org.jetbrains.uast.EmptyUExpression;
+import org.jetbrains.uast.UAnnotation;
+import org.jetbrains.uast.UArrayValue;
+import org.jetbrains.uast.UBooleanValue;
+import org.jetbrains.uast.UConstantValue;
+import org.jetbrains.uast.UExpression;
+import org.jetbrains.uast.UExpressionValue;
+import org.jetbrains.uast.UNamedExpression;
+import org.jetbrains.uast.UQualifiedExpression;
+import org.jetbrains.uast.USimpleConstantValue;
+import org.jetbrains.uast.UStringValue;
+import org.jetbrains.uast.UType;
+import org.jetbrains.uast.UTypeValue;
+import org.jetbrains.uast.UastUtils;
+import org.jetbrains.uast.dumb.DumbUAnnotation;
+import org.jetbrains.uast.dumb.DumbUQualifiedExpression;
+import org.jetbrains.uast.expressions.UastExpressionFactory;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
@@ -79,6 +89,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -275,9 +286,9 @@ public class ExternalAnnotationRepository {
     }
 
     @Nullable
-    public Collection<PsiAnnotation> getAnnotations(@NonNull ReferenceBinding cls) {
+    public Collection<UAnnotation> getAnnotations(@NonNull ReferenceBinding cls) {
         for (AnnotationsDatabase database : mDatabases) {
-            Collection<PsiAnnotation> annotations = database.getAnnotations(cls);
+            Collection<UAnnotation> annotations = database.getAnnotations(cls);
             if (annotations != null) {
                 return annotations;
             }
@@ -287,9 +298,9 @@ public class ExternalAnnotationRepository {
     }
 
     @Nullable
-    public Collection<PsiAnnotation> getAnnotations(@NonNull MethodBinding method) {
+    public Collection<UAnnotation> getAnnotations(@NonNull MethodBinding method) {
         for (AnnotationsDatabase database : mDatabases) {
-            Collection<PsiAnnotation> annotations = database.getAnnotations(method);
+            Collection<UAnnotation> annotations = database.getAnnotations(method);
             if (annotations != null) {
                 return annotations;
             }
@@ -299,10 +310,10 @@ public class ExternalAnnotationRepository {
     }
 
     @Nullable
-    public Collection<PsiAnnotation> getParameterAnnotations(@NonNull MethodBinding method,
+    public Collection<UAnnotation> getParameterAnnotations(@NonNull MethodBinding method,
             int parameterIndex) {
         for (AnnotationsDatabase database : mDatabases) {
-            Collection<PsiAnnotation> annotations = database.getAnnotations(method,
+            Collection<UAnnotation> annotations = database.getAnnotations(method,
                     parameterIndex);
             if (annotations != null) {
                 return annotations;
@@ -313,9 +324,9 @@ public class ExternalAnnotationRepository {
     }
 
     @Nullable
-    public Collection<PsiAnnotation> getAnnotations(@NonNull FieldBinding field) {
+    public Collection<UAnnotation> getAnnotations(@NonNull FieldBinding field) {
         for (AnnotationsDatabase database : mDatabases) {
-            Collection<PsiAnnotation> annotations = database.getAnnotations(field);
+            Collection<UAnnotation> annotations = database.getAnnotations(field);
             if (annotations != null) {
                 return annotations;
             }
@@ -325,9 +336,9 @@ public class ExternalAnnotationRepository {
     }
 
     @Nullable
-    public Collection<PsiAnnotation> getAnnotations(@NonNull PackageBinding pkg) {
+    public Collection<UAnnotation> getAnnotations(@NonNull PackageBinding pkg) {
         for (AnnotationsDatabase database : mDatabases) {
-            Collection<PsiAnnotation> annotations = database.getAnnotations(pkg);
+            Collection<UAnnotation> annotations = database.getAnnotations(pkg);
             if (annotations != null) {
                 return annotations;
             }
@@ -460,7 +471,7 @@ public class ExternalAnnotationRepository {
         private List<ResolvedAnnotation> annotations;
         public Multimap<String,MethodInfo> methods;
         public Map<String,FieldInfo> fields;
-        public List<PsiAnnotation> psiAnnotations;
+        public List<UAnnotation> psiAnnotations;
 
         public List<ResolvedAnnotation> getAnnotations() {
             if (annotations == null) {
@@ -476,10 +487,10 @@ public class ExternalAnnotationRepository {
     }
 
     @Nullable
-    private static Multimap<Integer,ResolvedAnnotation> wrapAnnotations(@Nullable Multimap<Integer,PsiAnnotation> psiAnnotations) {
+    private static Multimap<Integer, ResolvedAnnotation> wrapAnnotations(@Nullable Multimap<Integer, UAnnotation> psiAnnotations) {
         if (psiAnnotations != null) {
             Multimap<Integer,ResolvedAnnotation> result = ArrayListMultimap.create();
-            for (Map.Entry<Integer, PsiAnnotation> entry : psiAnnotations.entries()) {
+            for (Map.Entry<Integer, UAnnotation> entry : psiAnnotations.entries()) {
                 result.put(entry.getKey(), wrapAnnotation(entry.getValue()));
             }
             return result;
@@ -488,10 +499,10 @@ public class ExternalAnnotationRepository {
     }
 
     @Nullable
-    private static List<ResolvedAnnotation> wrapAnnotations(@Nullable List<PsiAnnotation> psiAnnotations) {
+    private static List<ResolvedAnnotation> wrapAnnotations(@Nullable List<UAnnotation> psiAnnotations) {
         if (psiAnnotations != null) {
             List<ResolvedAnnotation> result = Lists.newArrayListWithCapacity(psiAnnotations.size());
-            for (PsiAnnotation annotation : psiAnnotations) {
+            for (UAnnotation annotation : psiAnnotations) {
                 result.add(wrapAnnotation(annotation));
             }
             return result;
@@ -500,36 +511,38 @@ public class ExternalAnnotationRepository {
     }
 
     @NonNull
-    private static ResolvedAnnotation wrapAnnotation(@NonNull PsiAnnotation psiAnnotation) {
-        String qualifiedName = psiAnnotation.getQualifiedName();
+    private static ResolvedAnnotation wrapAnnotation(@NonNull UAnnotation psiAnnotation) {
+        String qualifiedName = psiAnnotation.getFqName();
         assert qualifiedName != null; // always true for external annotations
         AnnotationsDatabase.ResolvedExternalAnnotation annotation =
                 new AnnotationsDatabase.ResolvedExternalAnnotation(qualifiedName);
-        for (PsiNameValuePair pairValue : psiAnnotation.getParameterList().getAttributes()) {
-            PsiAnnotationMemberValue value = pairValue.getValue();
-            String name = pairValue.getName();
+        for (Map.Entry<String, UConstantValue<?>> pairValue : psiAnnotation.getValues().entrySet()) {
+            UConstantValue<?> value = pairValue.getValue();
+            String name = pairValue.getKey();
             Object value1;
-            if (value instanceof PsiArrayInitializerMemberValue) {
-                PsiAnnotationMemberValue[] initializers = ((PsiArrayInitializerMemberValue) value)
-                        .getInitializers();
-                Object[] o = new Object[initializers.length];
-                for (int i = 0; i < initializers.length; i++) {
-                    PsiAnnotationMemberValue initializer = initializers[i];
-                    if (initializer instanceof PsiLiteral) {
-                        o[i] = ((PsiLiteral) initializer).getValue();
-                    } else if (initializer instanceof PsiReferenceExpression) {
-                        PsiReferenceExpression ref = (PsiReferenceExpression) initializer;
-                        PsiElement resolved = ref.resolve();
-                        assert resolved instanceof PsiField;
-                        o[i] = new ResolvedExternalField(ref.getQualifiedName());
+            if (value instanceof UArrayValue) {
+                List<UConstantValue<?>> initializers = ((UArrayValue) value).getValue();
+                Object[] o = new Object[initializers.size()];
+                for (int i = 0; i < initializers.size(); i++) {
+                    UConstantValue<?> initializer = initializers.get(i);
+                    if (initializer instanceof USimpleConstantValue<?>) {
+                        o[i] = initializer.getValue();
+                    } else if (initializer instanceof UTypeValue) {
+                        UType type = ((UTypeValue) initializer).getValue();
+                        o[i] = new ResolvedExternalField(type.getFqName());
+                    } else if (initializer instanceof UExpressionValue) {
+                        UExpression type = ((UExpressionValue) initializer).getValue();
+                        assert type instanceof UQualifiedExpression : type;
+                        o[i] = new ResolvedExternalField(UastUtils.asQualifiedString(
+                                (UQualifiedExpression) type));
                     } else {
                         assert false : initializer;
                         o[i] = null;
                     }
                 }
                 value1 = o;
-            } else if (value instanceof PsiLiteral) {
-                value1 = ((PsiLiteral) value).getValue();
+            } else if (value instanceof USimpleConstantValue<?>) {
+                value1 = value.getValue();
             } else {
                 assert false : value;
                 value1 = null;
@@ -547,8 +560,8 @@ public class ExternalAnnotationRepository {
         public boolean constructor;
         private List<ResolvedAnnotation> annotations;
         private Multimap<Integer,ResolvedAnnotation> parameterAnnotations;
-        private Multimap<Integer,PsiAnnotation> psiParameterAnnotations;
-        public List<PsiAnnotation> psiAnnotations;
+        private Multimap<Integer, UAnnotation> psiParameterAnnotations;
+        public List<UAnnotation> psiAnnotations;
 
         public List<ResolvedAnnotation> getAnnotations() {
             if (annotations == null) {
@@ -567,7 +580,7 @@ public class ExternalAnnotationRepository {
 
     private static class FieldInfo {
         private List<ResolvedAnnotation> annotations;
-        public List<PsiAnnotation> psiAnnotations;
+        public List<UAnnotation> psiAnnotations;
 
         public List<ResolvedAnnotation> getAnnotations() {
             if (annotations == null) {
@@ -693,7 +706,7 @@ public class ExternalAnnotationRepository {
             return c.getAnnotations();
         }
 
-        public Collection<PsiAnnotation> getAnnotations(@NonNull ReferenceBinding cls) {
+        public Collection<UAnnotation> getAnnotations(@NonNull ReferenceBinding cls) {
             ClassInfo c = findClass(cls);
             if (c == null) {
                 return null;
@@ -702,7 +715,7 @@ public class ExternalAnnotationRepository {
             return c.psiAnnotations;
         }
 
-        public Collection<PsiAnnotation> getAnnotations(@NonNull MethodBinding method) {
+        public Collection<UAnnotation> getAnnotations(@NonNull MethodBinding method) {
             MethodInfo m = findMethod(method);
             if (m == null) {
                 return null;
@@ -711,7 +724,7 @@ public class ExternalAnnotationRepository {
         }
 
 
-        public Collection<PsiAnnotation> getAnnotations(@NonNull MethodBinding method,
+        public Collection<UAnnotation> getAnnotations(@NonNull MethodBinding method,
                 int parameterIndex) {
             MethodInfo m = findMethod(method);
             if (m == null) {
@@ -725,7 +738,7 @@ public class ExternalAnnotationRepository {
             return null;
         }
 
-        public Collection<PsiAnnotation> getAnnotations(@NonNull FieldBinding field) {
+        public Collection<UAnnotation> getAnnotations(@NonNull FieldBinding field) {
             FieldInfo m = findField(field);
             if (m == null) {
                 return null;
@@ -733,7 +746,7 @@ public class ExternalAnnotationRepository {
             return m.psiAnnotations;
         }
 
-        public Collection<PsiAnnotation> getAnnotations(@NonNull PackageBinding pkg) {
+        public Collection<UAnnotation> getAnnotations(@NonNull PackageBinding pkg) {
             ClassInfo c = findPackage(pkg);
 
             if (c == null) {
@@ -1201,7 +1214,7 @@ public class ExternalAnnotationRepository {
             parameters = fixParameterString(parameters);
 
             MethodInfo method = createMethod(containingClass, methodName, constructor, parameters);
-            List<PsiAnnotation> annotations = createAnnotations(item);
+            List<UAnnotation> annotations = createAnnotations(item);
 
             String argNum = matcher.group(7);
             if (argNum != null) {
@@ -1213,7 +1226,7 @@ public class ExternalAnnotationRepository {
                     int parameterCount = 4;
                     method.psiParameterAnnotations = ArrayListMultimap.create(parameterCount, annotations.size());
                 }
-                for (PsiAnnotation annotation : annotations) {
+                for (UAnnotation annotation : annotations) {
                     method.psiParameterAnnotations.put(parameter, annotation);
                 }
             } else {
@@ -1226,7 +1239,7 @@ public class ExternalAnnotationRepository {
 
         private void mergeField(Element item, String containingClass, String fieldName) {
             FieldInfo field = createField(containingClass, fieldName);
-            List<PsiAnnotation> annotations = createAnnotations(item);
+            List<UAnnotation> annotations = createAnnotations(item);
             if (field.psiAnnotations == null) {
                 field.psiAnnotations = Lists.newArrayListWithExpectedSize(annotations.size());
             }
@@ -1235,18 +1248,18 @@ public class ExternalAnnotationRepository {
 
         private void mergeClass(Element item, String containingClass) {
             ClassInfo cls = createClass(containingClass);
-            List<PsiAnnotation> annotations = createAnnotations(item);
+            List<UAnnotation> annotations = createAnnotations(item);
             if (cls.psiAnnotations == null) {
                 cls.psiAnnotations = Lists.newArrayListWithExpectedSize(annotations.size());
             }
             cls.psiAnnotations.addAll(annotations);
         }
 
-        private List<PsiAnnotation> createAnnotations(Element itemElement) {
+        private List<UAnnotation> createAnnotations(Element itemElement) {
             List<Element> children = getChildren(itemElement);
-            List<PsiAnnotation> result = Lists.newArrayListWithExpectedSize(children.size());
+            List<UAnnotation> result = Lists.newArrayListWithExpectedSize(children.size());
             for (Element annotationElement : children) {
-                PsiAnnotation annotation = createAnnotation(annotationElement);
+                UAnnotation annotation = createAnnotation(annotationElement);
                 if (annotation != null) {
                     result.add(annotation);
                 }
@@ -1322,99 +1335,105 @@ public class ExternalAnnotationRepository {
             }
         }
 
-        //private Map<String, ExternalPsiAnnotation> mMarkerAnnotations = Maps.newHashMapWithExpectedSize(30);
+        private Map<String, UAnnotation> mMarkerAnnotations = Maps.newHashMapWithExpectedSize(30);
 
-        private PsiAnnotation createAnnotation(Element annotationElement) {
-            return null;
-            //String tagName = annotationElement.getTagName();
-            //assert tagName.equals("annotation") : tagName;
-            //String name = annotationElement.getAttribute(ATTR_NAME);
-            //assert name != null && !name.isEmpty();
-            //
-            //ExternalPsiAnnotation annotation = mMarkerAnnotations.get(name);
-            //if (annotation != null) {
-            //    return annotation;
-            //}
-            //
-            //annotation = new ExternalPsiAnnotation(name);
-            //
-            //List<Element> valueElements = getChildren(annotationElement);
-            //if (valueElements.isEmpty()
-            //        // Permission annotations are sometimes used as marker annotations (on
-            //        // parameters) but that shouldn't let us conclude that any future
-            //        // permission annotations are. Ditto for @CheckResult, where we sometimes
-            //        // specify a suggestion.
-            //        && !name.startsWith(PERMISSION_ANNOTATION)
-            //        && !name.equals(CHECK_RESULT_ANNOTATION)) {
-            //    mMarkerAnnotations.put(name, annotation);
-            //    return annotation;
-            //}
-            //
-            //List<PsiNameValuePair> pairs = Lists.newArrayListWithCapacity(valueElements.size());
-            //for (Element valueElement : valueElements) {
-            //    if (valueElement.getTagName().equals("val")) {
-            //        String valueName = valueElement.getAttribute(ATTR_NAME);
-            //        String valueString = valueElement.getAttribute("val");
-            //        if (!valueName.isEmpty() && !valueString.isEmpty()) {
-            //            // Guess type
-            //            if (valueString.equals(VALUE_TRUE)) {
-            //                pairs.add(new ExternalPsiNameValuePair(valueName, valueString,
-            //                        new ExternalPsiAnnotationLiteralMemberValue(true)));
-            //            } else if (valueString.equals(VALUE_FALSE)) {
-            //                pairs.add(new ExternalPsiNameValuePair(valueName, valueString,
-            //                        new ExternalPsiAnnotationLiteralMemberValue(false)));
-            //            } else if (valueString.startsWith("\"") && valueString.endsWith("\"") &&
-            //                    valueString.length() >= 2) {
-            //                String s = valueString.substring(1, valueString.length() - 1);
-            //                pairs.add(new ExternalPsiNameValuePair(valueName, valueString,
-            //                        new ExternalPsiAnnotationLiteralMemberValue(s)));
-            //            } else if (valueString.startsWith("{") && valueString.endsWith("}")) {
-            //                // Array of values
-            //                String listString = valueString.substring(1, valueString.length() - 1);
-            //                // We don't know the types, but we'll assume that they're either
-            //                // all strings (the most common array type in our annotations), or
-            //                // field references. We can't know the types of the fields; it's
-            //                // not part of the annotation metadata. We'll place them in an Object[]
-            //                // for now.
-            //                Splitter splitter = Splitter.on(',').omitEmptyStrings().trimResults();
-            //                List<PsiAnnotationMemberValue> result = Lists.newArrayList();
-            //                for (String reference : splitter.split(listString)) {
-            //                    if (reference.startsWith("\"")) {
-            //                        String s = reference.substring(1, reference.length() - 1);
-            //                        result.add(new ExternalPsiAnnotationLiteralMemberValue(s));
-            //                    } else {
-            //                        result.add(new ExternalPsiReferenceExpressionMemberValue(reference));
-            //                    }
-            //                }
-            //                PsiAnnotationMemberValue[] initializers = result.toArray(
-            //                        PsiAnnotationMemberValue.EMPTY_ARRAY);
-            //                pairs.add(new ExternalPsiNameValuePair(valueName, valueString,
-            //                        new ExternalPsiArrayInitializerMemberValue(initializers)));
-            //
-            //                // We don't know the actual type of these fields; we'll assume they're
-            //                // a special form of
-            //            } else if (Character.isDigit(valueString.charAt(0))) {
-            //                Object value;
-            //                try {
-            //                    if (valueString.contains(".")) {
-            //                        value = Double.parseDouble(valueString);
-            //                    } else {
-            //                        value = Long.parseLong(valueString);
-            //                    }
-            //                } catch (NumberFormatException nufe) {
-            //                    value = valueString;
-            //                }
-            //                pairs.add(new ExternalPsiNameValuePair(valueName, valueString,
-            //                        new ExternalPsiAnnotationLiteralMemberValue(value)));
-            //            } else {
-            //                pairs.add(new ExternalPsiNameValuePair(valueName, valueString,
-            //                        new ExternalPsiAnnotationLiteralMemberValue(valueString)));
-            //            }
-            //        }
-            //    }
-            //}
-            //annotation.setAttributes(pairs.toArray(PsiNameValuePair.EMPTY_ARRAY));
-            //return annotation;
+        private UAnnotation createAnnotation(Element annotationElement) {
+            String tagName = annotationElement.getTagName();
+            assert tagName.equals("annotation") : tagName;
+            String fqName = annotationElement.getAttribute(ATTR_NAME);
+            assert fqName != null && !fqName.isEmpty();
+
+            UAnnotation annotation = mMarkerAnnotations.get(fqName);
+            if (annotation != null) {
+                return annotation;
+            }
+
+            Map<String, UConstantValue<?>> values = new LinkedHashMap<String, UConstantValue<?>>();
+            List<UNamedExpression> expressions = new ArrayList<UNamedExpression>();
+            annotation = new DumbUAnnotation(fqName, values, expressions, /* parent = */ null);
+
+            List<Element> valueElements = getChildren(annotationElement);
+            if (valueElements.isEmpty()
+                    // Permission annotations are sometimes used as marker annotations (on
+                    // parameters) but that shouldn't let us conclude that any future
+                    // permission annotations are. Ditto for @CheckResult, where we sometimes
+                    // specify a suggestion.
+                    && !fqName.startsWith(PERMISSION_ANNOTATION)
+                    && !fqName.equals(CHECK_RESULT_ANNOTATION)) {
+                mMarkerAnnotations.put(fqName, annotation);
+                return annotation;
+            }
+
+            UastExpressionFactory originalFactory = new UastExpressionFactory() {
+                @org.jetbrains.annotations.Nullable
+                @Override
+                public UExpression invoke() {
+                    return null;
+                }
+            };
+
+            for (Element valueElement : valueElements) {
+                if (valueElement.getTagName().equals("val")) {
+                    String valueName = valueElement.getAttribute(ATTR_NAME);
+                    String valueString = valueElement.getAttribute("val");
+                    if (!valueName.isEmpty() && !valueString.isEmpty()) {
+                        // Guess type
+                        if (valueString.equals(VALUE_TRUE)) {
+                            values.put(valueName, new UBooleanValue(true, originalFactory));
+                        } else if (valueString.equals(VALUE_FALSE)) {
+                            values.put(valueName, new UBooleanValue(false, originalFactory));
+                        } else if (valueString.startsWith("\"") && valueString.endsWith("\"") &&
+                                valueString.length() >= 2) {
+                            String s = valueString.substring(1, valueString.length() - 1);
+                            values.put(valueName, new UStringValue(s, originalFactory));
+                        } else if (valueString.startsWith("{") && valueString.endsWith("}")) {
+                            // Array of values
+                            String listString = valueString.substring(1, valueString.length() - 1);
+                            // We don't know the types, but we'll assume that they're either
+                            // all strings (the most common array type in our annotations), or
+                            // field references. We can't know the types of the fields; it's
+                            // not part of the annotation metadata. We'll place them in an Object[]
+                            // for now.
+                            Splitter splitter = Splitter.on(',').omitEmptyStrings().trimResults();
+                            List<UConstantValue<?>> result = Lists.newArrayList();
+                            for (String reference : splitter.split(listString)) {
+                                if (reference.startsWith("\"")) {
+                                    String s = reference.substring(1, reference.length() - 1);
+                                    result.add(new UStringValue(s, originalFactory));
+                                } else {
+                                    result.add(new UExpressionValue(
+                                            DumbUQualifiedExpression.make(reference, annotation),
+                                            originalFactory));
+                                }
+                            }
+
+                            values.put(valueName, new UArrayValue(result, originalFactory));
+
+                            // We don't know the actual type of these fields; we'll assume they're
+                            // a special form of
+                        } else if (Character.isDigit(valueString.charAt(0))) {
+                            Object value;
+                            try {
+                                if (valueString.contains(".")) {
+                                    value = Double.parseDouble(valueString);
+                                } else {
+                                    value = Long.parseLong(valueString);
+                                }
+                            } catch (NumberFormatException nufe) {
+                                value = valueString;
+                            }
+                            values.put(valueName, createUConstantValue(value, originalFactory));
+                        } else {
+                            values.put(valueName, new UStringValue(valueString, originalFactory));
+                        }
+
+                        expressions.add(new UNamedExpression(
+                                valueName, new EmptyUExpression(annotation), /* parent = */ null));
+                    }
+                }
+            }
+
+            return annotation;
         }
     }
 

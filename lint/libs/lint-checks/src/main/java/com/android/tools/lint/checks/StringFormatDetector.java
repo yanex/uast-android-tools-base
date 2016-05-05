@@ -25,16 +25,11 @@ import static com.android.SdkConstants.DOT_JAVA;
 import static com.android.SdkConstants.FORMAT_METHOD;
 import static com.android.SdkConstants.GET_STRING_METHOD;
 import static com.android.SdkConstants.TAG_STRING;
-import static com.android.tools.lint.client.api.JavaParser.TYPE_BOOLEAN_WRAPPER;
-import static com.android.tools.lint.client.api.JavaParser.TYPE_BYTE_WRAPPER;
-import static com.android.tools.lint.client.api.JavaParser.TYPE_CHARACTER_WRAPPER;
-import static com.android.tools.lint.client.api.JavaParser.TYPE_DOUBLE_WRAPPER;
-import static com.android.tools.lint.client.api.JavaParser.TYPE_FLOAT_WRAPPER;
-import static com.android.tools.lint.client.api.JavaParser.TYPE_INTEGER_WRAPPER;
-import static com.android.tools.lint.client.api.JavaParser.TYPE_LONG_WRAPPER;
-import static com.android.tools.lint.client.api.JavaParser.TYPE_OBJECT;
-import static com.android.tools.lint.client.api.JavaParser.TYPE_SHORT_WRAPPER;
 import static com.android.tools.lint.client.api.JavaParser.TYPE_STRING;
+import static org.jetbrains.uast.UastModifier.VARARG;
+import static org.jetbrains.uast.util.UastExpressionUtils.isConstructorCall;
+import static org.jetbrains.uast.util.UastExpressionUtils.isNewArrayWithDimensions;
+import static org.jetbrains.uast.util.UastExpressionUtils.isNewArrayWithInitializer;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
@@ -45,11 +40,10 @@ import com.android.ide.common.res2.ResourceItem;
 import com.android.ide.common.resources.ResourceUrl;
 import com.android.resources.ResourceFolderType;
 import com.android.resources.ResourceType;
-import com.android.tools.lint.client.api.JavaEvaluator;
 import com.android.tools.lint.client.api.LintClient;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Context;
-import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
+import com.android.tools.lint.detector.api.Detector;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
@@ -67,20 +61,19 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import com.intellij.psi.JavaElementVisitor;
-import com.intellij.psi.PsiArrayInitializerExpression;
-import com.intellij.psi.PsiClassType;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiExpression;
-import com.intellij.psi.PsiLiteral;
-import com.intellij.psi.PsiMethod;
-import com.intellij.psi.PsiMethodCallExpression;
-import com.intellij.psi.PsiNewExpression;
-import com.intellij.psi.PsiParameterList;
-import com.intellij.psi.PsiReference;
-import com.intellij.psi.PsiType;
-import com.intellij.psi.PsiVariable;
 
+import org.jetbrains.uast.UCallExpression;
+import org.jetbrains.uast.UClass;
+import org.jetbrains.uast.UDeclaration;
+import org.jetbrains.uast.UExpression;
+import org.jetbrains.uast.UFunction;
+import org.jetbrains.uast.ULiteralExpression;
+import org.jetbrains.uast.UType;
+import org.jetbrains.uast.UVariable;
+import org.jetbrains.uast.UastUtils;
+import org.jetbrains.uast.expressions.UReferenceExpression;
+import org.jetbrains.uast.util.UastExpressionUtils;
+import org.jetbrains.uast.visitor.UastVisitor;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
@@ -105,7 +98,7 @@ import java.util.regex.Pattern;
  * <p>
  * TODO: Handle Resources.getQuantityString as well
  */
-public class StringFormatDetector extends ResourceXmlDetector implements JavaPsiScanner {
+public class StringFormatDetector extends ResourceXmlDetector implements Detector.UastScanner {
     private static final Implementation IMPLEMENTATION_XML = new Implementation(
             StringFormatDetector.class,
             Scope.ALL_RESOURCES_SCOPE);
@@ -974,7 +967,7 @@ public class StringFormatDetector extends ResourceXmlDetector implements JavaPsi
      * @param format the format string
      * @return true if the format is locale sensitive, false otherwise
      */
-    public static boolean isLocaleSpecific(@NonNull String format) {
+    static boolean isLocaleSpecific(@NonNull String format) {
         if (format.indexOf('%') == -1) {
             return false;
         }
@@ -1024,31 +1017,29 @@ public class StringFormatDetector extends ResourceXmlDetector implements JavaPsi
         return false;
     }
 
+    @Nullable
     @Override
-    public List<String> getApplicableMethodNames() {
+    public List<String> getApplicableFunctionNames() {
         return Arrays.asList(FORMAT_METHOD, GET_STRING_METHOD);
     }
 
     @Override
-    public void visitMethod(@NonNull JavaContext context, @Nullable JavaElementVisitor visitor,
-            @NonNull PsiMethodCallExpression node, @NonNull PsiMethod method) {
+    public void visitFunctionCallExpression(@NonNull JavaContext context,
+            @Nullable UastVisitor visitor, @NonNull UCallExpression call,
+            @NonNull UFunction function) {
         if (mFormatStrings == null && !context.getClient().supportsProjectResources()) {
             return;
         }
 
-        JavaEvaluator evaluator = context.getEvaluator();
-        String methodName = method.getName();
-        if (methodName.equals(FORMAT_METHOD)) {
-            if (evaluator.isMemberInClass(method, TYPE_STRING)) {
-                // Check formatting parameters for
-                //   java.lang.String#format(String format, Object... formatArgs)
-                //   java.lang.String#format(Locale locale, String format, Object... formatArgs)
-                checkStringFormatCall(context, method, node,
-                        method.getParameterList().getParametersCount() == 3);
+        if (function.matchesNameWithContaining(TYPE_STRING, FORMAT_METHOD)) {
+            // Check formatting parameters for
+            //   java.lang.String#format(String format, Object... formatArgs)
+            //   java.lang.String#format(Locale locale, String format, Object... formatArgs)
+            checkStringFormatCall(context, function, call,
+                    function.getValueParameterCount() == 3);
 
-                // TODO: Consider also enforcing
-                // java.util.Formatter#format(String string, Object... formatArgs)
-            }
+            // TODO: Consider also enforcing
+            // java.util.Formatter#format(String string, Object... formatArgs)
         } else {
             // Look up any of these string formatting methods:
             // android.content.res.Resources#getString(@StringRes int resId, Object... formatArgs)
@@ -1062,15 +1053,16 @@ public class StringFormatDetector extends ResourceXmlDetector implements JavaPsi
             // also possible that they're looking up strings that are not intended to be used
             // for formatting so while we may want to warn about this it's not necessarily
             // an error.
-            if (method.getParameterList().getParametersCount() < 2) {
+            if (function.getValueParameterCount() < 2) {
                 return;
             }
 
-            if (evaluator.isMemberInSubClassOf(method, CLASS_RESOURCES, false) ||
-                    evaluator.isMemberInSubClassOf(method, CLASS_CONTEXT, false) ||
-                    evaluator.isMemberInSubClassOf(method, CLASS_FRAGMENT, false) ||
-                    evaluator.isMemberInSubClassOf(method, CLASS_V4_FRAGMENT, false)) {
-                checkStringFormatCall(context, method, node, false);
+            UClass containingClass = UastUtils.getContainingClassOrEmpty(function);
+            if (containingClass.isSubclassOf(CLASS_RESOURCES, false) ||
+                    containingClass.isSubclassOf(CLASS_CONTEXT, false) ||
+                    containingClass.isSubclassOf(CLASS_FRAGMENT, false) ||
+                    containingClass.isSubclassOf(CLASS_V4_FRAGMENT, false)) {
+                checkStringFormatCall(context, function, call, false);
             }
 
             // TODO: Consider also looking up
@@ -1079,6 +1071,7 @@ public class StringFormatDetector extends ResourceXmlDetector implements JavaPsi
             // though this will require being smarter about cross referencing formatting
             // strings since we'll need to go via the quantity string definitions
         }
+
     }
 
     /**
@@ -1090,7 +1083,7 @@ public class StringFormatDetector extends ResourceXmlDetector implements JavaPsi
      */
     private static void checkNotFormattedHandle(
             JavaContext context,
-            PsiMethodCallExpression call,
+            UCallExpression call,
             String name,
             Handle handle) {
         Object clientData = handle.getClientData();
@@ -1120,19 +1113,19 @@ public class StringFormatDetector extends ResourceXmlDetector implements JavaPsi
      */
     private void checkStringFormatCall(
             JavaContext context,
-            PsiMethod calledMethod,
-            PsiMethodCallExpression call,
+            UFunction calledMethod,
+            UCallExpression call,
             boolean specifiesLocale) {
 
         int argIndex = specifiesLocale ? 1 : 0;
-        PsiExpression[] args = call.getArgumentList().getExpressions();
+        List<UExpression> args = call.getValueArguments();
 
-        if (args.length <= argIndex) {
+        if (args.size() <= argIndex) {
             return;
         }
 
-        PsiExpression argument = args[argIndex];
-        ResourceUrl resource = null; //TODO //ResourceEvaluator.getResource(context.getEvaluator(), argument);
+        UExpression argument = args.get(argIndex);
+        ResourceUrl resource = ResourceEvaluator.getResource(context.getEvaluator(), context, argument);
         if (resource == null || resource.framework || resource.type != ResourceType.STRING) {
             return;
         }
@@ -1143,7 +1136,7 @@ public class StringFormatDetector extends ResourceXmlDetector implements JavaPsi
         }
 
         boolean passingVarArgsArray = false;
-        int callCount = args.length - 1 - argIndex;
+        int callCount = args.size() - 1 - argIndex;
 
         if (callCount == 1) {
             // If instead of a varargs call like
@@ -1153,20 +1146,20 @@ public class StringFormatDetector extends ResourceXmlDetector implements JavaPsi
             // we'll need to handle that such that we don't think this is a single
             // argument
 
-            PsiExpression lastArg = args[args.length - 1];
-            PsiParameterList parameterList = calledMethod.getParameterList();
-            int parameterCount = parameterList.getParametersCount();
-            if (parameterCount > 0 && parameterList.getParameters()[parameterCount - 1].isVarArgs()) {
+            UExpression lastArg = args.get(args.size() - 1);
+            List<UVariable> parameterList = calledMethod.getValueParameters();
+            int parameterCount = parameterList.size();
+            if (parameterCount > 0 && parameterList.get(parameterCount - 1).hasModifier(VARARG)) {
                 boolean knownArity = false;
 
                 boolean argWasReference = false;
-                if (lastArg instanceof PsiReference) {
-                    PsiElement resolved = ((PsiReference) lastArg).resolve();
+                if (lastArg instanceof UReferenceExpression) {
+                    UDeclaration resolved = ((UReferenceExpression) lastArg).resolve(context);
 
 
-                    if (resolved instanceof PsiVariable) {
-                        PsiExpression initializer = ((PsiVariable) resolved).getInitializer();
-                        if (initializer instanceof PsiNewExpression) {
+                    if (resolved instanceof UVariable) {
+                        UExpression initializer = ((UVariable) resolved).getInitializer();
+                        if (isConstructorCall(initializer)) {
                             argWasReference = true;
                             // Now handled by check below
                             lastArg = initializer;
@@ -1174,18 +1167,18 @@ public class StringFormatDetector extends ResourceXmlDetector implements JavaPsi
                     }
                 }
 
-                if (lastArg instanceof PsiNewExpression) {
-                    PsiNewExpression newExpression = (PsiNewExpression) lastArg;
-                    PsiArrayInitializerExpression initializer = newExpression.getArrayInitializer();
-                    if (initializer != null) {
-                        callCount = initializer.getInitializers().length;
+                if (UastExpressionUtils.isNewArray(lastArg)) {
+                    UCallExpression callExpression = (UCallExpression) lastArg;
+
+                    if (isNewArrayWithInitializer(lastArg)) {
+                        callCount = callExpression.getValueArgumentCount();
                         knownArity = true;
-                    } else {
-                        PsiExpression[] arrayDimensions = newExpression.getArrayDimensions();
-                        if (arrayDimensions.length == 1) {
-                            PsiExpression first = arrayDimensions[0];
-                            if (first instanceof PsiLiteral) {
-                                Object o = ((PsiLiteral)first).getValue();
+                    } else if (isNewArrayWithDimensions(lastArg)) {
+                        List<UExpression> arrayDimensions = callExpression.getValueArguments();
+                        if (arrayDimensions.size() == 1) {
+                            UExpression first = arrayDimensions.get(0);
+                            if (first instanceof ULiteralExpression) {
+                                Object o = ((ULiteralExpression) first).getValue();
                                 if (o instanceof Integer) {
                                     callCount = (Integer)o;
                                     knownArity = true;
@@ -1193,6 +1186,7 @@ public class StringFormatDetector extends ResourceXmlDetector implements JavaPsi
                             }
                         }
                     }
+
                     if (!knownArity) {
                         if (!argWasReference) {
                             return;
@@ -1311,7 +1305,7 @@ public class StringFormatDetector extends ResourceXmlDetector implements JavaPsi
                     }
                     for (int i = 1; i <= count; i++) {
                         int argumentIndex = i + argIndex;
-                        PsiType type = args[argumentIndex].getType();
+                        UType type = args.get(argumentIndex).getExpressionType();
                         if (type != null) {
                             boolean valid = true;
                             String formatType = getFormatArgumentType(s, i);
@@ -1368,7 +1362,7 @@ public class StringFormatDetector extends ResourceXmlDetector implements JavaPsi
                             }
 
                             if (!valid) {
-                                Location location = context.getLocation(args[argumentIndex]);
+                                Location location = context.getLocation(args.get(argumentIndex));
                                 Location secondary = handle.resolve();
                                 secondary.setMessage("Conflicting argument declaration here");
                                 location.setSecondary(secondary);
@@ -1377,27 +1371,15 @@ public class StringFormatDetector extends ResourceXmlDetector implements JavaPsi
                                     suggestion = "`b`";
                                 } else if (isCharacterType(type)) {
                                     suggestion = "'c'";
-                                } else if (PsiType.INT.equals(type)
-                                            || PsiType.LONG.equals(type)
-                                            || PsiType.BYTE.equals(type)
-                                            || PsiType.SHORT.equals(type)) {
+                                } else if (type.isInt()
+                                            || type.isLong()
+                                            || type.isByte()
+                                            || type.isShort()) {
                                     suggestion = "`d`, 'o' or `x`";
-                                } else if (PsiType.FLOAT.equals(type)
-                                        || PsiType.DOUBLE.equals(type)) {
+                                } else if (type.isFloat() || type.isDouble()) {
                                     suggestion = "`e`, 'f', 'g' or `a`";
-                                } else if (type instanceof PsiClassType) {
-                                    String fqn = type.getCanonicalText();
-                                    if (TYPE_INTEGER_WRAPPER.equals(fqn)
-                                            || TYPE_LONG_WRAPPER.equals(fqn)
-                                            || TYPE_BYTE_WRAPPER.equals(fqn)
-                                            || TYPE_SHORT_WRAPPER.equals(fqn)) {
-                                        suggestion = "`d`, 'o' or `x`";
-                                    } else if (TYPE_FLOAT_WRAPPER.equals(fqn)
-                                            || TYPE_DOUBLE_WRAPPER.equals(fqn)) {
-                                        suggestion = "`d`, 'o' or `x`";
-                                    } else if (TYPE_OBJECT.equals(fqn)) {
-                                        suggestion = "'s' or 'h'";
-                                    }
+                                } else if (type.isObject()) {
+                                    suggestion = "'s' or 'h'";
                                 }
 
                                 if (suggestion != null) {
@@ -1407,15 +1389,11 @@ public class StringFormatDetector extends ResourceXmlDetector implements JavaPsi
                                     suggestion = "";
                                 }
 
-                                String canonicalText = type.getCanonicalText();
-                                canonicalText = canonicalText.substring(
-                                        canonicalText.lastIndexOf('.') + 1);
-
                                 String message = String.format(
                                         "Wrong argument type for formatting argument '#%1$d' " +
                                         "in `%2$s`: conversion is '`%3$s`', received `%4$s` " +
                                         "(argument #%5$d in method call)%6$s",
-                                        i, name, formatType, canonicalText,
+                                        i, name, formatType, type.getName(),
                                         argumentIndex + 1, suggestion);
                                 context.report(ARG_TYPES, call, location, message);
                                 if (reported == null) {
@@ -1430,58 +1408,30 @@ public class StringFormatDetector extends ResourceXmlDetector implements JavaPsi
         }
     }
 
-    private static boolean isCharacterType(PsiType type) {
-        //return PsiType.CHAR.isAssignableFrom(type);
-        if (type == PsiType.CHAR) {
-            return true;
-        }
-        if (type instanceof PsiClassType) {
-            String fqn = type.getCanonicalText();
-            return TYPE_CHARACTER_WRAPPER.equals(fqn);
-        }
-
-        return false;
+    private static boolean isCharacterType(UType type) {
+        return type.isChar();
     }
 
-    private static boolean isBooleanType(PsiType type) {
-        //return PsiType.BOOLEAN.isAssignableFrom(type);
-        if (type == PsiType.BOOLEAN) {
-            return true;
-        }
-        if (type instanceof PsiClassType) {
-            String fqn = type.getCanonicalText();
-            return TYPE_BOOLEAN_WRAPPER.equals(fqn);
-        }
+    private static boolean isBooleanType(UType type) {
+        return type.isBoolean();
 
-        return false;
     }
 
     //PsiType:java.lang.Boolean
-    private static boolean isNumericType(@NonNull PsiType type, boolean allowBigNumbers) {
-        if (PsiType.INT.equals(type)
-                || PsiType.FLOAT.equals(type)
-                || PsiType.DOUBLE.equals(type)
-                || PsiType.LONG.equals(type)
-                || PsiType.BYTE.equals(type)
-                || PsiType.SHORT.equals(type)) {
+    private static boolean isNumericType(@NonNull UType type, boolean allowBigNumbers) {
+        if (type.isInt()
+                || type.isFloat()
+                || type.isDouble()
+                || type.isLong()
+                || type.isByte()
+                || type.isShort()) {
             return true;
         }
 
-        if (type instanceof PsiClassType) {
-            String fqn = type.getCanonicalText();
-            if (TYPE_INTEGER_WRAPPER.equals(fqn)
-                    || TYPE_FLOAT_WRAPPER.equals(fqn)
-                    || TYPE_DOUBLE_WRAPPER.equals(fqn)
-                    || TYPE_LONG_WRAPPER.equals(fqn)
-                    || TYPE_BYTE_WRAPPER.equals(fqn)
-                    || TYPE_SHORT_WRAPPER.equals(fqn)) {
+        if (allowBigNumbers) {
+            if (type.matchesFqName("java.math.BigInteger") ||
+                    type.matchesFqName("java.math.BigDecimal")) {
                 return true;
-            }
-            if (allowBigNumbers) {
-                if ("java.math.BigInteger".equals(fqn) ||
-                        "java.math.BigDecimal".equals(fqn)) {
-                    return true;
-                }
             }
         }
 

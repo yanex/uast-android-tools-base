@@ -133,6 +133,22 @@ public class ResourceEvaluator {
     }
 
     /**
+     * Evaluates the given node and returns the resource reference (type and name) it
+     * points to, if any
+     *
+     * @param evaluator the evaluator to use to look up annotations
+     * @param element the node to compute the constant value for
+     * @return the corresponding resource url (type and name)
+     */
+    @Nullable
+    public static ResourceUrl getResource(
+            @Nullable JavaEvaluator evaluator,
+            @NonNull JavaContext context,
+            @NonNull UElement element) {
+        return new ResourceEvaluator(evaluator, context).getResource(element);
+    }
+
+    /**
      * Evaluates the given node and returns the resource types implied by the given element,
      * if any.
      *

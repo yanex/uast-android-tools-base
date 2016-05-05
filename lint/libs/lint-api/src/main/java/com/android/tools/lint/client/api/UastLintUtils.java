@@ -99,7 +99,7 @@ public class UastLintUtils {
 
     public static List<UAnnotation> getAllAnnotations(UFunction function, UastContext context) {
         List<UAnnotation> annotations = new ArrayList<UAnnotation>(function.getAnnotations());
-        for (UFunction superFunction : function.getSuperFunctions(context)) {
+        for (UFunction superFunction : function.getOverriddenDeclarations(context)) {
             annotations.addAll(superFunction.getAnnotations());
         }
         return annotations;

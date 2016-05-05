@@ -88,6 +88,8 @@ import org.jetbrains.uast.UVariable;
 import org.jetbrains.uast.UastBinaryOperator;
 import org.jetbrains.uast.UastContext;
 import org.jetbrains.uast.UastFunctionKind;
+import org.jetbrains.uast.UastLiteralUtils;
+import org.jetbrains.uast.UastModifier;
 import org.jetbrains.uast.UastPrefixOperator;
 import org.jetbrains.uast.UastUtils;
 import org.jetbrains.uast.UastVariableKind;
@@ -96,6 +98,7 @@ import org.jetbrains.uast.UConstantValue;
 import org.jetbrains.uast.USimpleConstantValue;
 import org.jetbrains.uast.UTypeValue;
 import org.jetbrains.uast.expressions.UReferenceExpression;
+import org.jetbrains.uast.java.JavaUVariable;
 import org.jetbrains.uast.util.UastExpressionUtils;
 import org.jetbrains.uast.visitor.AbstractUastVisitor;
 import org.jetbrains.uast.visitor.UastVisitor;
@@ -816,7 +819,7 @@ public class SupportAnnotationDetector extends Detector implements Detector.Uast
 
             List<UFunction> functions = new ArrayList<UFunction>(1);
             functions.add(parentFunction);
-            functions.addAll(parentFunction.getSuperFunctions(context));
+            functions.addAll(parentFunction.getOverriddenDeclarations(context));
 
             for (UFunction function : functions) {
                 for (UAnnotation annotation : function.getAnnotations()) {
@@ -833,7 +836,7 @@ public class SupportAnnotationDetector extends Detector implements Detector.Uast
             List<UClass> classes = new ArrayList<UClass>(1);
             if (cls != null) {
                 classes.add(cls);
-                classes.addAll(cls.getSuperClasses(context));
+                classes.addAll(cls.getOverriddenDeclarations(context));
             }
 
             for (UClass clazz : classes) {
@@ -1262,7 +1265,7 @@ public class SupportAnnotationDetector extends Detector implements Detector.Uast
     }
 
     @Nullable
-    private static UAnnotation findIntDef(@NonNull List<UAnnotation> annotations) {
+    static UAnnotation findIntDef(@NonNull List<UAnnotation> annotations) {
         for (UAnnotation annotation : annotations) {
             if (INT_DEF_ANNOTATION.equals(annotation.getFqName())) {
                 return annotation;
@@ -1364,8 +1367,7 @@ public class SupportAnnotationDetector extends Detector implements Detector.Uast
             if (resolved instanceof UVariable) {
                 UVariable variable = (UVariable) resolved;
 
-                UVariable field = (UVariable) resolved;
-                if (field.getType() instanceof UArrayType) {
+                if (variable.getType() instanceof UArrayType) {
                     // It's pointing to an array reference; we can't check these individual
                     // elements (because we can't jump from ResolvedNodes to AST elements; this
                     // is part of the motivation for the PSI change in lint 2.0), but we also
@@ -1373,13 +1375,23 @@ public class SupportAnnotationDetector extends Detector implements Detector.Uast
                     return;
                 }
 
-                UExpression lastAssignment =
-                        UastLintUtils.findLastAssignment(variable, argument, context);
+                // If it's a constant (static/final) check that it's one of the allowed ones
+                if (variable.hasModifier(UastModifier.STATIC)
+                        && variable.hasModifier(UastModifier.IMMUTABLE)) {
+                    checkTypeDefConstant(context, annotation, argument,
+                            errorNode != null ? errorNode : argument,
+                            flag, resolved, allAnnotations);
+                } else {
+                    UExpression lastAssignment =
+                            UastLintUtils.findLastAssignment(variable, argument, context);
 
-                checkTypeDefConstant(context, annotation,
-                        lastAssignment,
-                        errorNode != null ? errorNode : argument, flag,
-                        allAnnotations);
+                    if (lastAssignment != null) {
+                        checkTypeDefConstant(context, annotation,
+                                lastAssignment,
+                                errorNode != null ? errorNode : argument, flag,
+                                allAnnotations);
+                    }
+                }
             }
         } else if (UastExpressionUtils.isNewArrayWithInitializer(argument)) {
             UCallExpression call = (UCallExpression) argument;
@@ -1421,7 +1433,7 @@ public class SupportAnnotationDetector extends Detector implements Detector.Uast
             List<UConstantValue<?>> initializers = initializerExpression.getValue();
             for (UConstantValue<?> expression : initializers) {
                 if (expression instanceof USimpleConstantValue<?>) {
-                    if (value.equals(((USimpleConstantValue)expression).getValue())) {
+                    if (value.equals(((USimpleConstantValue) expression).getValue())) {
                         return;
                     }
                 } else if (expression instanceof UTypeValue) {
@@ -1433,9 +1445,31 @@ public class SupportAnnotationDetector extends Detector implements Detector.Uast
             }
 
             if (value instanceof UVariable) {
-                UVariable variable = (UVariable)value;
+                UVariable variable = (UVariable) value;
                 UExpression initializer = variable.getInitializer();
                 if (initializer != null) {
+                    // Special case for -1, -2, ...
+                    if (initializer instanceof UPrefixExpression) {
+                        UPrefixExpression prefixExpression = (UPrefixExpression) initializer;
+                        if (prefixExpression.getOperator() == UastPrefixOperator.UNARY_MINUS) {
+                            UExpression operand = prefixExpression.getOperand();
+                            if (UastLiteralUtils.isIntegralLiteral(operand)) {
+                                Object v = ((ULiteralExpression) operand).getValue();
+                                assert v != null;
+                                Number num;
+                                if (v instanceof Long) {
+                                    long l = (Long) v;
+                                    num = -l;
+                                } else {
+                                    int i = ((Number) v).intValue();
+                                    num = -i;
+                                }
+                                checkTypeDefConstant(context, annotation, initializer, errorNode,
+                                        flag, num, allAnnotations);
+                                return;
+                            }
+                        }
+                    }
                     checkTypeDefConstant(context, annotation, initializer, errorNode,
                             flag, allAnnotations);
                     return;
@@ -1493,7 +1527,11 @@ public class SupportAnnotationDetector extends Detector implements Detector.Uast
 
     @Nullable
     private static UConstantValue<?> getAnnotationValue(@NonNull UAnnotation annotation) {
-        return annotation.getValue(ATTR_VALUE);
+        UConstantValue<?> value = annotation.getValue(ATTR_VALUE);
+        if (value == null) {
+            value = annotation.getValue(null);
+        }
+        return value;
     }
 
     private static String listAllowedValues(
@@ -1502,8 +1540,9 @@ public class SupportAnnotationDetector extends Detector implements Detector.Uast
         StringBuilder sb = new StringBuilder();
         for (UConstantValue<?> allowedValue : allowedValues) {
             String s = null;
-            if (allowedValue instanceof UReferenceExpression) {
-                UDeclaration resolved = ((UReferenceExpression) allowedValue).resolve(context);
+            UExpression original = allowedValue.getOriginal();
+            if (original instanceof UReferenceExpression) {
+                UDeclaration resolved = ((UReferenceExpression) original).resolve(context);
                 if (resolved instanceof UVariable
                         && ((UVariable) resolved).getKind() == UastVariableKind.MEMBER) {
                     UVariable field = (UVariable) resolved;

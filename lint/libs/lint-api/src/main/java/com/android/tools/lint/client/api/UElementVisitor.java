@@ -374,7 +374,7 @@ public class UElementVisitor {
             @Nullable Set<String> addTo,
             @NonNull UClass cls,
             @NonNull JavaContext context) {
-        for (UClass clazz : cls.getSuperClasses(context)) {
+        for (UClass clazz : cls.getOverriddenDeclarations(context)) {
             if (clazz != null && clazz.getKind() == UastClassKind.INTERFACE) {
                 String name = clazz.getFqName();
                 if (addTo == null) {

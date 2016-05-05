@@ -18,16 +18,15 @@ package com.android.tools.lint.checks;
 
 import static com.android.SdkConstants.CLASS_CONTENTPROVIDER;
 import static com.android.SdkConstants.CLASS_CONTEXT;
+import static com.android.SdkConstants.CLASS_RESOURCES;
 import static com.android.tools.lint.detector.api.LintUtils.skipParentheses;
-import static com.intellij.psi.util.PsiTreeUtil.getParentOfType;
+import static org.jetbrains.uast.util.UastExpressionUtils.isFunctionCall;
 
 import com.android.SdkConstants;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.android.tools.lint.client.api.JavaEvaluator;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Detector;
-import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
@@ -35,32 +34,30 @@ import com.android.tools.lint.detector.api.Location;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
 import com.google.common.collect.Lists;
-import com.intellij.psi.JavaElementVisitor;
-import com.intellij.psi.JavaRecursiveElementVisitor;
-import com.intellij.psi.PsiAssertStatement;
-import com.intellij.psi.PsiAssignmentExpression;
-import com.intellij.psi.PsiClass;
-import com.intellij.psi.PsiClassType;
-import com.intellij.psi.PsiCodeBlock;
-import com.intellij.psi.PsiDeclarationStatement;
-import com.intellij.psi.PsiDoWhileStatement;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiExpression;
-import com.intellij.psi.PsiExpressionStatement;
-import com.intellij.psi.PsiField;
-import com.intellij.psi.PsiIfStatement;
-import com.intellij.psi.PsiLocalVariable;
-import com.intellij.psi.PsiMethod;
-import com.intellij.psi.PsiMethodCallExpression;
-import com.intellij.psi.PsiNewExpression;
-import com.intellij.psi.PsiReference;
-import com.intellij.psi.PsiReferenceExpression;
-import com.intellij.psi.PsiReturnStatement;
-import com.intellij.psi.PsiStatement;
-import com.intellij.psi.PsiType;
-import com.intellij.psi.PsiVariable;
-import com.intellij.psi.PsiWhileStatement;
-import com.intellij.psi.util.PsiTreeUtil;
+
+import org.jetbrains.uast.UBinaryExpression;
+import org.jetbrains.uast.UBlockExpression;
+import org.jetbrains.uast.UCallExpression;
+import org.jetbrains.uast.UClass;
+import org.jetbrains.uast.UDeclaration;
+import org.jetbrains.uast.UDeclarationsExpression;
+import org.jetbrains.uast.UDoWhileExpression;
+import org.jetbrains.uast.UElement;
+import org.jetbrains.uast.UExpression;
+import org.jetbrains.uast.UFunction;
+import org.jetbrains.uast.UIfExpression;
+import org.jetbrains.uast.UReturnExpression;
+import org.jetbrains.uast.UType;
+import org.jetbrains.uast.UVariable;
+import org.jetbrains.uast.UWhileExpression;
+import org.jetbrains.uast.UastBinaryOperator;
+import org.jetbrains.uast.UastContext;
+import org.jetbrains.uast.UastUtils;
+import org.jetbrains.uast.UastVariableKind;
+import org.jetbrains.uast.expressions.UReferenceExpression;
+import org.jetbrains.uast.java.JavaUAssertExpression;
+import org.jetbrains.uast.visitor.AbstractUastVisitor;
+import org.jetbrains.uast.visitor.UastVisitor;
 
 import java.util.Arrays;
 import java.util.List;
@@ -69,7 +66,7 @@ import java.util.List;
  * Checks for missing {@code recycle} calls on resources that encourage it, and
  * for missing {@code commit} calls on FragmentTransactions, etc.
  */
-public class CleanupDetector extends Detector implements JavaPsiScanner {
+public class CleanupDetector extends Detector implements Detector.UastScanner {
 
     private static final Implementation IMPLEMENTATION = new Implementation(
             CleanupDetector.class,
@@ -172,7 +169,7 @@ public class CleanupDetector extends Detector implements JavaPsiScanner {
     public CleanupDetector() {
     }
 
-    // ---- Implements JavaScanner ----
+    // ---- Implements UastScanner ----
 
     @Nullable
     @Override
@@ -205,24 +202,24 @@ public class CleanupDetector extends Detector implements JavaPsiScanner {
     }
 
     @Override
-    public void visitMethod(@NonNull JavaContext context, @Nullable JavaElementVisitor visitor,
-            @NonNull PsiMethodCallExpression call, @NonNull PsiMethod method) {
-        String name = method.getName();
-        if (BEGIN_TRANSACTION.equals(name)) {
-            checkTransactionCommits(context, call, method);
-        } else if (EDIT.equals(name)) {
-            checkEditorApplied(context, call, method);
+    public void visitFunctionCallExpression(@NonNull JavaContext context,
+            @Nullable UastVisitor visitor, @NonNull UCallExpression call,
+            @NonNull UFunction function) {
+        if (function.matchesName(BEGIN_TRANSACTION)) {
+            checkTransactionCommits(context, call, function);
+        } else if (function.matchesName(EDIT)) {
+            checkEditorApplied(context, call, function);
         } else {
-            checkResourceRecycled(context, call, method);
+            checkResourceRecycled(context, call, function);
         }
     }
 
     @Override
-    public void visitConstructor(@NonNull JavaContext context, @Nullable JavaElementVisitor visitor,
-            @NonNull PsiNewExpression node, @NonNull PsiMethod constructor) {
-        PsiClass containingClass = constructor.getContainingClass();
+    public void visitConstructor(@NonNull JavaContext context, @Nullable UastVisitor visitor,
+            @NonNull UCallExpression node, @NonNull UFunction constructor) {
+        UClass containingClass = UastUtils.getContainingClass(constructor);
         if (containingClass != null) {
-            String type = containingClass.getQualifiedName();
+            String type = containingClass.getFqName();
             if (type != null) {
                 checkRecycled(context, node, type, RELEASE);
             }
@@ -230,45 +227,42 @@ public class CleanupDetector extends Detector implements JavaPsiScanner {
     }
 
     private static void checkResourceRecycled(@NonNull JavaContext context,
-            @NonNull PsiMethodCallExpression node, @NonNull PsiMethod method) {
-        String name = method.getName();
+            @NonNull UCallExpression node, @NonNull UFunction method) {
         // Recycle detector
-        PsiClass containingClass = method.getContainingClass();
+        UClass containingClass = UastUtils.getContainingClass(method);
         if (containingClass == null) {
             return;
         }
-        JavaEvaluator evaluator = context.getEvaluator();
-        if ((OBTAIN.equals(name) || OBTAIN_NO_HISTORY.equals(name)) &&
-                evaluator.extendsClass(containingClass, MOTION_EVENT_CLS, false)) {
+        if ((node.matchesFunctionName(OBTAIN) || node.matchesFunctionName(OBTAIN_NO_HISTORY)) &&
+                containingClass.isSubclassOf(MOTION_EVENT_CLS, false)) {
             checkRecycled(context, node, MOTION_EVENT_CLS, RECYCLE);
-        } else if (OBTAIN.equals(name) && evaluator.extendsClass(containingClass, PARCEL_CLS, false)) {
+        } else if (node.matchesFunctionName(OBTAIN) &&
+                containingClass.isSubclassOf(PARCEL_CLS, false)) {
             checkRecycled(context, node, PARCEL_CLS, RECYCLE);
-        } else if (OBTAIN.equals(name) &&
-                evaluator.extendsClass(containingClass, VELOCITY_TRACKER_CLS, false)) {
+        } else if (node.matchesFunctionName(OBTAIN) &&
+                containingClass.isSubclassOf(VELOCITY_TRACKER_CLS, false)) {
             checkRecycled(context, node, VELOCITY_TRACKER_CLS, RECYCLE);
-        } else if ((OBTAIN_STYLED_ATTRIBUTES.equals(name)
-                || OBTAIN_ATTRIBUTES.equals(name)
-                || OBTAIN_TYPED_ARRAY.equals(name)) &&
-                (evaluator.extendsClass(containingClass, CLASS_CONTEXT, false) ||
-                        evaluator.extendsClass(containingClass, SdkConstants.CLASS_RESOURCES, false))) {
-            PsiType returnType = method.getReturnType();
-            if (returnType instanceof PsiClassType) {
-                PsiClass cls = ((PsiClassType)returnType).resolve();
-                if (cls != null && SdkConstants.CLS_TYPED_ARRAY.equals(cls.getQualifiedName())) {
-                    checkRecycled(context, node, SdkConstants.CLS_TYPED_ARRAY, RECYCLE);
-                }
+        } else if ((node.matchesFunctionName(OBTAIN_STYLED_ATTRIBUTES)
+                || node.matchesFunctionName(OBTAIN_ATTRIBUTES)
+                || node.matchesFunctionName(OBTAIN_TYPED_ARRAY)) &&
+                (containingClass.isSubclassOf(CLASS_CONTEXT, false) ||
+                        containingClass.isSubclassOf(CLASS_RESOURCES, false))) {
+            UType returnType = method.getReturnType();
+            UClass cls = returnType != null ? returnType.resolve(context) : null;
+            if (cls != null && cls.matchesFqName(SdkConstants.CLS_TYPED_ARRAY)) {
+                checkRecycled(context, node, SdkConstants.CLS_TYPED_ARRAY, RECYCLE);
             }
-        } else if (ACQUIRE_CPC.equals(name) && evaluator.extendsClass(containingClass,
-                CONTENT_RESOLVER_CLS, false)) {
+        } else if (node.matchesFunctionName(ACQUIRE_CPC)
+                && containingClass.isSubclassOf(CONTENT_RESOLVER_CLS, false)) {
             checkRecycled(context, node, CONTENT_PROVIDER_CLIENT_CLS, RELEASE);
-        } else if ((QUERY.equals(name)
-                || RAW_QUERY.equals(name)
-                || QUERY_WITH_FACTORY.equals(name)
-                || RAW_QUERY_WITH_FACTORY.equals(name))
-                && (evaluator.extendsClass(containingClass, SQLITE_DATABASE_CLS, false) ||
-                    evaluator.extendsClass(containingClass, CONTENT_RESOLVER_CLS, false) ||
-                    evaluator.extendsClass(containingClass, CLASS_CONTENTPROVIDER, false) ||
-                    evaluator.extendsClass(containingClass, CONTENT_PROVIDER_CLIENT_CLS, false))) {
+        } else if ((node.matchesFunctionName(QUERY)
+                || node.matchesFunctionName(RAW_QUERY)
+                || node.matchesFunctionName(QUERY_WITH_FACTORY)
+                || node.matchesFunctionName(RAW_QUERY_WITH_FACTORY))
+                && (containingClass.isSubclassOf(SQLITE_DATABASE_CLS, false) ||
+                    containingClass.isSubclassOf(CONTENT_RESOLVER_CLS, false) ||
+                    containingClass.isSubclassOf(CLASS_CONTENTPROVIDER, false) ||
+                    containingClass.isSubclassOf(CONTENT_PROVIDER_CLIENT_CLS, false))) {
             // Other potential cursors-returning methods that should be tracked:
             //    android.app.DownloadManager#query
             //    android.content.ContentProviderClient#query
@@ -287,34 +281,32 @@ public class CleanupDetector extends Detector implements JavaPsiScanner {
         }
     }
 
-    private static void checkRecycled(@NonNull final JavaContext context, @NonNull PsiElement node,
+    private static void checkRecycled(@NonNull final JavaContext context, @NonNull UElement node,
             @NonNull final String recycleType, @NonNull final String recycleName) {
-        PsiVariable boundVariable = getVariableElement(node);
+        UVariable boundVariable = getVariableElement(node, context);
         if (boundVariable == null) {
             return;
         }
 
-        PsiMethod method = getParentOfType(node, PsiMethod.class, true);
+        UFunction method = UastUtils.getContainingFunction(node);
         if (method == null) {
             return;
         }
         FinishVisitor visitor = new FinishVisitor(context, boundVariable) {
             @Override
-            protected boolean isCleanupCall(@NonNull PsiMethodCallExpression call) {
-                PsiReferenceExpression methodExpression = call.getMethodExpression();
-                String methodName = methodExpression.getReferenceName();
-                if (!recycleName.equals(methodName)) {
+            protected boolean isCleanupCall(@NonNull UCallExpression call) {
+                if (!call.matchesFunctionName(recycleName)) {
                     return false;
                 }
-                PsiMethod method = call.resolveMethod();
+                UFunction method = call.resolve(mContext);
                 if (method != null) {
-                    PsiClass containingClass = method.getContainingClass();
-                    if (mContext.getEvaluator().extendsClass(containingClass, recycleType, false)) {
+                    UClass containingClass = UastUtils.getContainingClassOrEmpty(method);
+                    if (containingClass.isSubclassOf(recycleType, false)) {
                         // Yes, called the right recycle() method; now make sure
                         // we're calling it on the right variable
-                        PsiExpression operand = methodExpression.getQualifierExpression();
-                        if (operand instanceof PsiReferenceExpression) {
-                            PsiElement resolved = ((PsiReferenceExpression) operand).resolve();
+                        UExpression operand = UastUtils.getReceiver(call);
+                        if (operand instanceof UReferenceExpression) {
+                            UElement resolved = ((UReferenceExpression) operand).resolve(mContext);
                             //noinspection SuspiciousMethodCalls
                             if (resolved != null && mVariables.contains(resolved)) {
                                 return true;
@@ -342,8 +334,8 @@ public class CleanupDetector extends Detector implements JavaPsiScanner {
                     recycleName);
         }
 
-        PsiElement locationNode = node instanceof PsiMethodCallExpression ?
-                ((PsiMethodCallExpression)node).getMethodExpression().getReferenceNameElement() : node;
+        UElement locationNode = node instanceof UCallExpression ?
+                ((UCallExpression) node).getFunctionNameElement() : node;
         if (locationNode == null) {
             locationNode = node;
         }
@@ -352,40 +344,39 @@ public class CleanupDetector extends Detector implements JavaPsiScanner {
     }
 
     private static void checkTransactionCommits(@NonNull JavaContext context,
-            @NonNull PsiMethodCallExpression node, @NonNull PsiMethod calledMethod) {
+            @NonNull UCallExpression node, @NonNull UFunction calledMethod) {
         if (isBeginTransaction(context, calledMethod)) {
-            PsiVariable boundVariable = getVariableElement(node, true);
+            UVariable boundVariable = getVariableElement(node, true, context);
             if (boundVariable == null && isCommittedInChainedCalls(context, node)) {
                 return;
             }
 
             if (boundVariable != null) {
-                PsiMethod method = getParentOfType(node, PsiMethod.class, true);
+                UFunction method = UastUtils.getContainingFunction(node);
                 if (method == null) {
                     return;
                 }
 
                 FinishVisitor commitVisitor = new FinishVisitor(context, boundVariable) {
                     @Override
-                    protected boolean isCleanupCall(@NonNull PsiMethodCallExpression call) {
+                    protected boolean isCleanupCall(@NonNull UCallExpression call) {
                         if (isTransactionCommitMethodCall(mContext, call)) {
-                            PsiExpression operand = call.getMethodExpression().getQualifierExpression();
+                            UExpression operand = UastUtils.getReceiver(call);
                             if (operand != null) {
-                                PsiElement resolved = mContext.getEvaluator().resolve(operand);
+                                UDeclaration resolved = UastUtils.resolveIfCan(operand, mContext);
                                 //noinspection SuspiciousMethodCalls
                                 if (resolved != null && mVariables.contains(resolved)) {
                                     return true;
-                                } else if (resolved instanceof PsiMethod
-                                        && operand instanceof PsiMethodCallExpression
-                                        && isCommittedInChainedCalls(mContext,
-                                            (PsiMethodCallExpression) operand)) {
+                                } else if (resolved instanceof UFunction
+                                        && operand instanceof UCallExpression
+                                        && isCommittedInChainedCalls(mContext, (UCallExpression) operand)) {
                                     // Check that the target of the committed chains is the
                                     // right variable!
-                                    while (operand instanceof PsiMethodCallExpression) {
-                                        operand = ((PsiMethodCallExpression)operand).getMethodExpression().getQualifierExpression();
+                                    while (operand instanceof UCallExpression) {
+                                        operand = UastUtils.getReceiver((UCallExpression) operand);
                                     }
-                                    if (operand instanceof PsiReferenceExpression) {
-                                        resolved = ((PsiReferenceExpression)operand).resolve();
+                                    if (operand instanceof UReferenceExpression) {
+                                        resolved = ((UReferenceExpression) operand).resolve(mContext);
                                         //noinspection SuspiciousMethodCalls
                                         if (resolved != null && mVariables.contains(resolved)) {
                                             return true;
@@ -394,10 +385,9 @@ public class CleanupDetector extends Detector implements JavaPsiScanner {
                                 }
                             }
                         } else if (isShowFragmentMethodCall(mContext, call)) {
-                            PsiExpression[] arguments = call.getArgumentList().getExpressions();
-                            if (arguments.length == 2) {
-                                PsiExpression first = arguments[0];
-                                PsiElement resolved = mContext.getEvaluator().resolve(first);
+                            if (call.getValueArgumentCount() == 2) {
+                                UExpression first = call.getValueArguments().get(0);
+                                UDeclaration resolved = UastUtils.resolveIfCan(first, mContext);
                                 //noinspection SuspiciousMethodCalls
                                 if (resolved != null && mVariables.contains(resolved)) {
                                     return true;
@@ -415,26 +405,27 @@ public class CleanupDetector extends Detector implements JavaPsiScanner {
             }
 
             String message = "This transaction should be completed with a `commit()` call";
-            context.report(COMMIT_FRAGMENT, node, context.getNameLocation(node), message);
+            context.report(COMMIT_FRAGMENT, node,
+                    context.getLocation(node.getFunctionNameElement()), message);
         }
     }
 
     private static boolean isCommittedInChainedCalls(@NonNull JavaContext context,
-            @NonNull PsiMethodCallExpression node) {
+            @NonNull UCallExpression node) {
         // Look for chained calls since the FragmentManager methods all return "this"
         // to allow constructor chaining, e.g.
         //    getFragmentManager().beginTransaction().addToBackStack("test")
         //            .disallowAddToBackStack().hide(mFragment2).setBreadCrumbShortTitle("test")
         //            .show(mFragment2).setCustomAnimations(0, 0).commit();
-        PsiElement parent = skipParentheses(node.getParent());
+        UElement parent = skipParentheses(node.getParent());
         while (parent != null) {
-            if (parent instanceof PsiMethodCallExpression) {
-                PsiMethodCallExpression methodInvocation = (PsiMethodCallExpression) parent;
+            if (parent instanceof UCallExpression) {
+                UCallExpression methodInvocation = (UCallExpression) parent;
                 if (isTransactionCommitMethodCall(context, methodInvocation)
                         || isShowFragmentMethodCall(context, methodInvocation)) {
                     return true;
                 }
-            } else if (!(parent instanceof PsiReferenceExpression)) {
+            } else if (!(parent instanceof UReferenceExpression)) {
                 // reference expressions are method references
                 return false;
             }
@@ -446,10 +437,9 @@ public class CleanupDetector extends Detector implements JavaPsiScanner {
     }
 
     private static boolean isTransactionCommitMethodCall(@NonNull JavaContext context,
-            @NonNull PsiMethodCallExpression call) {
+            @NonNull UCallExpression call) {
 
-        String methodName = call.getMethodExpression().getReferenceName();
-        return (COMMIT.equals(methodName) || COMMIT_ALLOWING_LOSS.equals(methodName)) &&
+        return (call.matchesFunctionName(COMMIT) || call.matchesFunctionName(COMMIT_ALLOWING_LOSS)) &&
                 isMethodOnFragmentClass(context, call,
                         FRAGMENT_TRANSACTION_CLS,
                         FRAGMENT_TRANSACTION_V4_CLS,
@@ -457,69 +447,65 @@ public class CleanupDetector extends Detector implements JavaPsiScanner {
     }
 
     private static boolean isShowFragmentMethodCall(@NonNull JavaContext context,
-            @NonNull PsiMethodCallExpression call) {
-        String methodName = call.getMethodExpression().getReferenceName();
-        return SHOW.equals(methodName)
-                && isMethodOnFragmentClass(context, call,
+            @NonNull UCallExpression call) {
+        return call.matchesFunctionName(SHOW) && isMethodOnFragmentClass(context, call,
                 DIALOG_FRAGMENT, DIALOG_V4_FRAGMENT, true);
     }
 
     private static boolean isMethodOnFragmentClass(
             @NonNull JavaContext context,
-            @NonNull PsiMethodCallExpression call,
+            @NonNull UCallExpression call,
             @NonNull String fragmentClass,
             @NonNull String v4FragmentClass,
             boolean returnForUnresolved) {
-        PsiMethod method = call.resolveMethod();
-        if (method != null) {
-            PsiClass containingClass = method.getContainingClass();
-            JavaEvaluator evaluator = context.getEvaluator();
-            return evaluator.extendsClass(containingClass, fragmentClass, false) ||
-                    evaluator.extendsClass(containingClass, v4FragmentClass, false);
+        UFunction function = call.resolve(context);
+        if (function != null) {
+            UClass containingClass = UastUtils.getContainingClassOrEmpty(function);
+            return containingClass.isSubclassOf(fragmentClass, false) ||
+                    containingClass.isSubclassOf(v4FragmentClass, false);
         } else {
-            // If we *can't* resolve the method call, caller can decide
-            // whether to consider the method called or not
+            // If we *can't* resolve the function call, caller can decide
+            // whether to consider the function called or not
             return returnForUnresolved;
         }
     }
 
     private static void checkEditorApplied(@NonNull JavaContext context,
-            @NonNull PsiMethodCallExpression node, @NonNull PsiMethod calledMethod) {
-        if (isSharedEditorCreation(context, calledMethod)) {
-            PsiVariable boundVariable = getVariableElement(node, true);
+            @NonNull UCallExpression node, @NonNull UFunction calledMethod) {
+        if (isSharedEditorCreation(calledMethod)) {
+            UVariable boundVariable = getVariableElement(node, true, context);
             if (isEditorCommittedInChainedCalls(context, node)) {
                 return;
             }
 
             if (boundVariable != null) {
-                PsiMethod method = getParentOfType(node, PsiMethod.class, true);
+                UFunction method = UastUtils.getContainingFunction(node);
                 if (method == null) {
                     return;
                 }
 
                 FinishVisitor commitVisitor = new FinishVisitor(context, boundVariable) {
                     @Override
-                    protected boolean isCleanupCall(@NonNull PsiMethodCallExpression call) {
+                    protected boolean isCleanupCall(@NonNull UCallExpression call) {
                         if (isEditorApplyMethodCall(mContext, call)
                                 || isEditorCommitMethodCall(mContext, call)) {
-                            PsiExpression operand = call.getMethodExpression().getQualifierExpression();
+                            UExpression operand = UastUtils.getReceiver(call);
                             if (operand != null) {
-                                PsiElement resolved = mContext.getEvaluator().resolve(operand);
+                                UDeclaration resolved = UastUtils.resolveIfCan(operand, mContext);
                                 //noinspection SuspiciousMethodCalls
                                 if (resolved != null && mVariables.contains(resolved)) {
                                     return true;
-                                } else if (resolved instanceof PsiMethod
-                                        && operand instanceof PsiMethodCallExpression
+                                } else if (resolved instanceof UFunction
+                                        && operand instanceof UCallExpression
                                         && isCommittedInChainedCalls(mContext,
-                                        (PsiMethodCallExpression) operand)) {
+                                        (UCallExpression) operand)) {
                                     // Check that the target of the committed chains is the
                                     // right variable!
-                                    while (operand instanceof PsiMethodCallExpression) {
-                                        operand = ((PsiMethodCallExpression)operand).
-                                                getMethodExpression().getQualifierExpression();
+                                    while (operand instanceof UCallExpression) {
+                                        operand = UastUtils.getReceiver((UCallExpression) operand);
                                     }
-                                    if (operand instanceof PsiReferenceExpression) {
-                                        resolved = ((PsiReferenceExpression)operand).resolve();
+                                    if (operand instanceof UReferenceExpression) {
+                                        resolved = ((UReferenceExpression) operand).resolve(mContext);
                                         //noinspection SuspiciousMethodCalls
                                         if (resolved != null && mVariables.contains(resolved)) {
                                             return true;
@@ -536,7 +522,7 @@ public class CleanupDetector extends Detector implements JavaPsiScanner {
                 if (commitVisitor.isCleanedUp() || commitVisitor.variableEscapes()) {
                     return;
                 }
-            } else if (PsiTreeUtil.getParentOfType(node, PsiReturnStatement.class) != null) {
+            } else if (UastUtils.getParentOfType(node, UReturnExpression.class) != null) {
                 // Allocation is in a return statement
                 return;
             }
@@ -547,30 +533,26 @@ public class CleanupDetector extends Detector implements JavaPsiScanner {
         }
     }
 
-    private static boolean isSharedEditorCreation(@NonNull JavaContext context,
-            @NonNull PsiMethod method) {
-        String methodName = method.getName();
-        if (EDIT.equals(methodName)) {
-            PsiClass containingClass = method.getContainingClass();
-            JavaEvaluator evaluator = context.getEvaluator();
-            return evaluator.extendsClass(containingClass, ANDROID_CONTENT_SHARED_PREFERENCES,
-                    false);
+    private static boolean isSharedEditorCreation(@NonNull UFunction function) {
+        if (function.matchesName(EDIT)) {
+            UClass containingClass = UastUtils.getContainingClassOrEmpty(function);
+            return containingClass.isSubclassOf(ANDROID_CONTENT_SHARED_PREFERENCES, false);
         }
 
         return false;
     }
 
     private static boolean isEditorCommittedInChainedCalls(@NonNull JavaContext context,
-            @NonNull PsiMethodCallExpression node) {
-        PsiElement parent = skipParentheses(node.getParent());
+            @NonNull UCallExpression node) {
+        UElement parent = skipParentheses(node.getParent());
         while (parent != null) {
-            if (parent instanceof PsiMethodCallExpression) {
-                PsiMethodCallExpression methodInvocation = (PsiMethodCallExpression) parent;
+            if (parent instanceof UCallExpression) {
+                UCallExpression methodInvocation = (UCallExpression) parent;
                 if (isEditorCommitMethodCall(context, methodInvocation)
                         || isEditorApplyMethodCall(context, methodInvocation)) {
                     return true;
                 }
-            } else if (!(parent instanceof PsiReferenceExpression)) {
+            } else if (!(parent instanceof UReferenceExpression)) {
                 // reference expressions are method references
                 return false;
             }
@@ -582,15 +564,12 @@ public class CleanupDetector extends Detector implements JavaPsiScanner {
     }
 
     private static boolean isEditorCommitMethodCall(@NonNull JavaContext context,
-            @NonNull PsiMethodCallExpression call) {
-        String methodName = call.getMethodExpression().getReferenceName();
-        if (COMMIT.equals(methodName)) {
-            PsiMethod method = call.resolveMethod();
+            @NonNull UCallExpression call) {
+        if (call.matchesFunctionName(COMMIT)) {
+            UFunction method = call.resolve(context);
             if (method != null) {
-                PsiClass containingClass = method.getContainingClass();
-                JavaEvaluator evaluator = context.getEvaluator();
-                if (evaluator.extendsClass(containingClass,
-                        ANDROID_CONTENT_SHARED_PREFERENCES_EDITOR, false)) {
+                UClass containingClass = UastUtils.getContainingClassOrEmpty(method);
+                if (containingClass.isSubclassOf(ANDROID_CONTENT_SHARED_PREFERENCES_EDITOR, false)) {
                     suggestApplyIfApplicable(context, call);
                     return true;
                 }
@@ -601,14 +580,12 @@ public class CleanupDetector extends Detector implements JavaPsiScanner {
     }
 
     private static boolean isEditorApplyMethodCall(@NonNull JavaContext context,
-            @NonNull PsiMethodCallExpression call) {
-        String methodName = call.getMethodExpression().getReferenceName();
-        if (APPLY.equals(methodName)) {
-            PsiMethod method = call.resolveMethod();
+            @NonNull UCallExpression call) {
+        if (call.matchesFunctionName(APPLY)) {
+            UFunction method = call.resolve(context);
             if (method != null) {
-                PsiClass containingClass = method.getContainingClass();
-                JavaEvaluator evaluator = context.getEvaluator();
-                return evaluator.extendsClass(containingClass,
+                UClass containingClass = UastUtils.getContainingClassOrEmpty(method);
+                return containingClass.isSubclassOf(
                         ANDROID_CONTENT_SHARED_PREFERENCES_EDITOR, false);
             }
         }
@@ -617,32 +594,31 @@ public class CleanupDetector extends Detector implements JavaPsiScanner {
     }
 
     private static void suggestApplyIfApplicable(@NonNull JavaContext context,
-            @NonNull PsiMethodCallExpression node) {
+            @NonNull UCallExpression node) {
         if (context.getProject().getMinSdkVersion().getApiLevel() >= 9) {
             // See if the return value is read: can only replace commit with
             // apply if the return value is not considered
-            PsiElement parent = skipParentheses(node.getParent());
-            while (parent instanceof PsiReferenceExpression) {
+            UElement parent = skipParentheses(node.getParent());
+            while (parent instanceof UReferenceExpression) {
                 parent = skipParentheses(parent.getParent());
             }
             boolean returnValueIgnored = false;
-            if (parent instanceof PsiMethodCallExpression ||
-                    parent instanceof PsiNewExpression ||
-                    parent instanceof PsiClass ||
-                    parent instanceof PsiCodeBlock ||
-                    parent instanceof PsiExpressionStatement) {
+            if ((parent instanceof UCallExpression && !(parent instanceof JavaUAssertExpression)) ||
+                    parent instanceof UClass ||
+                    parent instanceof UBlockExpression ||
+                    (parent instanceof UExpression && ((UExpression) parent).isStatement())) {
                 returnValueIgnored = true;
-            } else if (parent instanceof PsiStatement) {
-                if (parent instanceof PsiIfStatement) {
-                    returnValueIgnored = ((PsiIfStatement)parent).getCondition() != node;
-                } else if (parent instanceof PsiWhileStatement) {
-                    returnValueIgnored = ((PsiWhileStatement)parent).getCondition() != node;
-                } else if (parent instanceof PsiDoWhileStatement) {
-                    returnValueIgnored = ((PsiDoWhileStatement)parent).getCondition() != node;
-                } else if (parent instanceof PsiAssertStatement) {
-                    returnValueIgnored = ((PsiAssertStatement)parent).getAssertCondition() != node;
-                } else if (parent instanceof PsiReturnStatement
-                        || parent instanceof PsiDeclarationStatement) {
+            } else if (parent instanceof UExpression) {
+                if (parent instanceof UIfExpression) {
+                    returnValueIgnored = ((UIfExpression)parent).getCondition() != node;
+                } else if (parent instanceof UWhileExpression) {
+                    returnValueIgnored = ((UWhileExpression)parent).getCondition() != node;
+                } else if (parent instanceof UDoWhileExpression) {
+                    returnValueIgnored = ((UDoWhileExpression)parent).getCondition() != node;
+                } else if (parent instanceof JavaUAssertExpression) {
+                    returnValueIgnored = ((JavaUAssertExpression)parent).getCondition() != node;
+                } else if (parent instanceof UReturnExpression
+                        || parent instanceof UDeclarationsExpression) {
                     returnValueIgnored = false;
                 } else {
                     returnValueIgnored = true;
@@ -659,23 +635,23 @@ public class CleanupDetector extends Detector implements JavaPsiScanner {
 
     /** Returns the variable the expression is assigned to, if any */
     @Nullable
-    public static PsiVariable getVariableElement(@NonNull PsiElement rhs) {
-        return getVariableElement(rhs, false);
+    private static UVariable getVariableElement(@NonNull UElement rhs, UastContext context) {
+        return getVariableElement(rhs, false, context);
     }
 
     @Nullable
-    public static PsiVariable getVariableElement(@NonNull PsiElement rhs,
-            boolean allowChainedCalls) {
-        PsiElement parent = skipParentheses(rhs.getParent());
+    private static UVariable getVariableElement(@NonNull UElement rhs,
+            boolean allowChainedCalls, UastContext context) {
+        UElement parent = skipParentheses(rhs.getParent());
 
         // Handle some types of chained calls; e.g. you might have
         //    var = prefs.edit().put(key,value)
         // and here we want to skip past the put call
         if (allowChainedCalls) {
             while (true) {
-                if ((parent instanceof PsiReferenceExpression)) {
-                    PsiElement parentParent = skipParentheses(parent.getParent());
-                    if ((parentParent instanceof PsiMethodCallExpression)) {
+                if ((parent instanceof UReferenceExpression)) {
+                    UElement parentParent = skipParentheses(parent.getParent());
+                    if ((parentParent instanceof UCallExpression)) {
                         parent = skipParentheses(parentParent.getParent());
                     } else {
                         break;
@@ -686,30 +662,34 @@ public class CleanupDetector extends Detector implements JavaPsiScanner {
             }
         }
 
-        if (parent instanceof PsiAssignmentExpression) {
-            PsiAssignmentExpression assignment = (PsiAssignmentExpression) parent;
-            PsiExpression lhs = assignment.getLExpression();
-            if (lhs instanceof PsiReference) {
-                PsiElement resolved = ((PsiReference)lhs).resolve();
-                if (resolved instanceof PsiVariable && !(resolved instanceof PsiField)) {
-                    // e.g. local variable, parameter - but not a field
-                    return (PsiVariable) resolved;
+        if (parent instanceof UBinaryExpression) {
+            UBinaryExpression binaryExpression = (UBinaryExpression) parent;
+            if (binaryExpression.getOperator() instanceof UastBinaryOperator.AssignOperator) {
+                UExpression lhs = binaryExpression.getLeftOperand();
+                if (lhs instanceof UReferenceExpression) {
+                    UElement resolved = ((UReferenceExpression) lhs).resolve(context);
+                    if (resolved instanceof UVariable) {
+                        UVariable variable = (UVariable) resolved;
+                        // e.g. local variable, parameter - but not a field
+                        if (variable.getKind() != UastVariableKind.MEMBER) {
+                            return (UVariable) resolved;
+                        }
+                    }
                 }
             }
-        } else if (parent instanceof PsiVariable && !(parent instanceof PsiField)) {
-            return (PsiVariable) parent;
+        } else if (parent instanceof UVariable
+                && ((UVariable) parent).getKind() != UastVariableKind.MEMBER) {
+            return (UVariable) parent;
         }
 
         return null;
     }
 
-    private static boolean isBeginTransaction(@NonNull JavaContext context, @NonNull PsiMethod method) {
-        String methodName = method.getName();
-        if (BEGIN_TRANSACTION.equals(methodName)) {
-            PsiClass containingClass = method.getContainingClass();
-            JavaEvaluator evaluator = context.getEvaluator();
-            if (evaluator.extendsClass(containingClass, FRAGMENT_MANAGER_CLS, false)
-                    || evaluator.extendsClass(containingClass, FRAGMENT_MANAGER_V4_CLS, false)) {
+    private static boolean isBeginTransaction(@NonNull JavaContext context, @NonNull UFunction method) {
+        if (method.matchesName(BEGIN_TRANSACTION)) {
+            UClass containingClass = UastUtils.getContainingClassOrEmpty(method);
+            if (containingClass.isSubclassOf(FRAGMENT_MANAGER_CLS, false)
+                    || containingClass.isSubclassOf(FRAGMENT_MANAGER_V4_CLS, false)) {
                 return true;
             }
         }
@@ -723,50 +703,48 @@ public class CleanupDetector extends Detector implements JavaPsiScanner {
      * case of a TypedArray we're looking for a "recycle", call, in the
      * case of a database cursor we're looking for a "close" call, etc.
      */
-    private abstract static class FinishVisitor extends JavaRecursiveElementVisitor {
+    private abstract static class FinishVisitor extends AbstractUastVisitor {
         protected final JavaContext mContext;
-        protected final List<PsiVariable> mVariables;
-        private final PsiVariable mOriginalVariableNode;
+        protected final List<UVariable> mVariables;
+        private final UVariable mOriginalVariableNode;
 
         private boolean mContainsCleanup;
         private boolean mEscapes;
 
-        public FinishVisitor(JavaContext context, @NonNull PsiVariable variableNode) {
+        FinishVisitor(JavaContext context, @NonNull UVariable variableNode) {
             mContext = context;
             mOriginalVariableNode = variableNode;
             mVariables = Lists.newArrayList(variableNode);
         }
 
-        public boolean isCleanedUp() {
+        boolean isCleanedUp() {
             return mContainsCleanup;
         }
 
-        public boolean variableEscapes() {
+        boolean variableEscapes() {
             return mEscapes;
         }
 
         @Override
-        public void visitElement(PsiElement element) {
-            if (!mContainsCleanup) {
-                super.visitElement(element);
-            }
+        public boolean visitElement(UElement node) {
+            return mContainsCleanup || super.visitElement(node);
         }
 
-        protected abstract boolean isCleanupCall(@NonNull PsiMethodCallExpression call);
+        abstract boolean isCleanupCall(@NonNull UCallExpression call);
 
         @Override
-        public void visitMethodCallExpression(PsiMethodCallExpression call) {
-            if (mContainsCleanup) {
-                return;
+        public boolean visitCallExpression(UCallExpression call) {
+            if (mContainsCleanup || !isFunctionCall(call)) {
+                return super.visitCallExpression(call);
             }
 
-            super.visitMethodCallExpression(call);
+            boolean ret = super.visitCallExpression(call);
 
             // Look for escapes
             if (!mEscapes) {
-                for (PsiExpression expression : call.getArgumentList().getExpressions()) {
-                    if (expression instanceof PsiReferenceExpression) {
-                        PsiElement resolved = ((PsiReferenceExpression) expression).resolve();
+                for (UExpression expression : call.getValueArguments()) {
+                    if (expression instanceof UReferenceExpression) {
+                        UDeclaration resolved = ((UReferenceExpression) expression).resolve(mContext);
                         //noinspection SuspiciousMethodCalls
                         if (resolved != null && mVariables.contains(resolved)) {
                             boolean wasEscaped = mEscapes;
@@ -775,11 +753,12 @@ public class CleanupDetector extends Detector implements JavaPsiScanner {
                             // Special case: MotionEvent.obtain(MotionEvent): passing in an
                             // event here does not recycle the event, and we also know it
                             // doesn't escape
-                            if (OBTAIN.equals(call.getMethodExpression().getReferenceName())) {
-                                PsiMethod method = call.resolveMethod();
-                                if (mContext.getEvaluator()
-                                        .isMemberInClass(method, MOTION_EVENT_CLS)) {
-                                    mEscapes = wasEscaped;
+                            if (call.matchesFunctionName(OBTAIN)) {
+                                UFunction method = call.resolve(mContext);
+                                if (method != null) {
+                                    if (method.matchesNameWithContaining(MOTION_EVENT_CLS, OBTAIN)) {
+                                        mEscapes = wasEscaped;
+                                    }
                                 }
                             }
                         }
@@ -790,41 +769,54 @@ public class CleanupDetector extends Detector implements JavaPsiScanner {
             if (isCleanupCall(call)) {
                 mContainsCleanup = true;
             }
+
+            return ret;
         }
 
         @Override
-        public void visitLocalVariable(PsiLocalVariable variable) {
-            super.visitLocalVariable(variable);
+        public boolean visitVariable(UVariable variable) {
+            boolean ret = super.visitVariable(variable);
 
-            PsiExpression initializer = variable.getInitializer();
-            if (initializer instanceof PsiReferenceExpression) {
-                PsiElement resolved = ((PsiReferenceExpression) initializer).resolve();
+            UExpression initializer = variable.getInitializer();
+            if (initializer instanceof UReferenceExpression) {
+                UDeclaration resolved = ((UReferenceExpression) initializer).resolve(mContext);
                 //noinspection SuspiciousMethodCalls
                 if (resolved != null && mVariables.contains(resolved)) {
                     mVariables.add(variable);
                 }
             }
+
+            return ret;
         }
 
         @Override
-        public void visitAssignmentExpression(PsiAssignmentExpression expression) {
-            super.visitAssignmentExpression(expression);
+        public boolean visitBinaryExpression(UBinaryExpression node) {
+            boolean ret = super.visitBinaryExpression(node);
 
+            if (node.getOperator() instanceof UastBinaryOperator.AssignOperator) {
+                visitAssignmentExpression(node);
+            }
+
+            return ret;
+        }
+
+        private void visitAssignmentExpression(UBinaryExpression expression) {
             // TEMPORARILY DISABLED; see testDatabaseCursorReassignment
             // This can result in some false positives right now. Play it
             // safe instead.
             boolean clearLhs = false;
 
-            PsiExpression rhs = expression.getRExpression();
-            if (rhs instanceof PsiReferenceExpression) {
-                PsiElement resolved = ((PsiReferenceExpression) rhs).resolve();
+            UExpression rhs = expression.getRightOperand();
+            if (rhs instanceof UReferenceExpression) {
+                UElement resolved = ((UReferenceExpression) rhs).resolve(mContext);
                 //noinspection SuspiciousMethodCalls
                 if (resolved != null && mVariables.contains(resolved)) {
                     clearLhs = false;
-                    PsiElement lhs = mContext.getEvaluator().resolve(expression.getLExpression());
-                    if (lhs instanceof PsiLocalVariable) {
-                        mVariables.add((PsiLocalVariable)lhs);
-                    } else if (lhs instanceof PsiField) {
+                    UElement lhs = UastUtils.resolveIfCan(expression.getLeftOperand(), mContext);
+                    if (lhs instanceof UVariable
+                            && ((UVariable) lhs).getKind() == UastVariableKind.LOCAL_VARIABLE) {
+                        mVariables.add((UVariable) lhs);
+                    } else if (lhs instanceof UVariable) {
                         mEscapes = true;
                     }
                 }
@@ -833,7 +825,7 @@ public class CleanupDetector extends Detector implements JavaPsiScanner {
             //noinspection ConstantConditions
             if (clearLhs) {
                 // If we reassign one of the variables, clear it out
-                PsiElement lhs = mContext.getEvaluator().resolve(expression.getLExpression());
+                UElement lhs = UastUtils.resolveIfCan(expression.getLeftOperand(), mContext);
                 //noinspection SuspiciousMethodCalls
                 if (lhs != null && !lhs.equals(mOriginalVariableNode)
                         && mVariables.contains(lhs)) {
@@ -844,17 +836,17 @@ public class CleanupDetector extends Detector implements JavaPsiScanner {
         }
 
         @Override
-        public void visitReturnStatement(PsiReturnStatement statement) {
-            PsiExpression returnValue = statement.getReturnValue();
-            if (returnValue instanceof PsiReference) {
-                PsiElement resolved = ((PsiReference) returnValue).resolve();
+        public boolean visitReturnExpression(UReturnExpression node) {
+            UExpression returnValue = node.getReturnExpression();
+            if (returnValue instanceof UReferenceExpression) {
+                UDeclaration resolved = ((UReferenceExpression) returnValue).resolve(mContext);
                 //noinspection SuspiciousMethodCalls
                 if (resolved != null && mVariables.contains(resolved)) {
                     mEscapes = true;
                 }
             }
 
-            super.visitReturnStatement(statement);
+            return super.visitReturnExpression(node);
         }
     }
 }
