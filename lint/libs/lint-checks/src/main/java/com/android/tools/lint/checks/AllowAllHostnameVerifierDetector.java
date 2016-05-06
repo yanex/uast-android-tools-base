@@ -17,6 +17,7 @@
 package com.android.tools.lint.checks;
 
 import static org.jetbrains.uast.UastUtils.resolveIfCan;
+import static org.jetbrains.uast.util.UastSignatureChecker.matchesSignature;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
@@ -35,6 +36,8 @@ import org.jetbrains.uast.UDeclaration;
 import org.jetbrains.uast.UExpression;
 import org.jetbrains.uast.UFunction;
 import org.jetbrains.uast.UVariable;
+import org.jetbrains.uast.util.UTypeConstraint;
+import org.jetbrains.uast.util.UastSignatureChecker;
 import org.jetbrains.uast.visitor.UastVisitor;
 
 import java.util.Arrays;
@@ -87,7 +90,7 @@ public class AllowAllHostnameVerifierDetector extends Detector implements Detect
     public void visitFunctionCallExpression(@NonNull JavaContext context,
             @Nullable UastVisitor visitor, @NonNull UCallExpression call,
             @NonNull UFunction function) {
-        if (UastLintUtils.functionMatches(function, null, false, "javax.net.ssl.HostnameVerifier")) {
+        if (matchesSignature(function, UTypeConstraint.make("javax.net.ssl.HostnameVerifier"))) {
             if (call.getValueArgumentCount() > 0) {
                 UExpression argument = call.getValueArguments().get(0);
                 UDeclaration resolvedArgument = resolveIfCan(argument, context);

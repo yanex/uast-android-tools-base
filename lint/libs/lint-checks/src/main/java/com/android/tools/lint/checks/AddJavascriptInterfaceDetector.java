@@ -19,6 +19,9 @@ package com.android.tools.lint.checks;
 
 import static com.android.tools.lint.client.api.JavaParser.TYPE_OBJECT;
 import static com.android.tools.lint.client.api.JavaParser.TYPE_STRING;
+import static org.jetbrains.uast.util.UTypeConstraint.OBJECT;
+import static org.jetbrains.uast.util.UTypeConstraint.STRING;
+import static org.jetbrains.uast.util.UastSignatureChecker.matchesSignature;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
@@ -33,6 +36,8 @@ import com.android.tools.lint.detector.api.Severity;
 
 import org.jetbrains.uast.UCallExpression;
 import org.jetbrains.uast.UFunction;
+import org.jetbrains.uast.util.UTypeConstraint;
+import org.jetbrains.uast.util.UastSignatureChecker;
 import org.jetbrains.uast.visitor.UastVisitor;
 
 import java.util.Collections;
@@ -78,7 +83,8 @@ public class AddJavascriptInterfaceDetector extends Detector implements Detector
             return;
         }
 
-        if (!UastLintUtils.functionMatches(function, WEB_VIEW, true, TYPE_OBJECT, TYPE_STRING)) {
+        if (!function.matchesContaining(WEB_VIEW) || !matchesSignature(function,
+                OBJECT, STRING)) {
             return;
         }
 

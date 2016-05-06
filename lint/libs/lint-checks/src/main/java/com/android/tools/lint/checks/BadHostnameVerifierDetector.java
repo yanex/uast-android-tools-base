@@ -17,6 +17,8 @@
 package com.android.tools.lint.checks;
 
 import static com.android.tools.lint.client.api.JavaParser.TYPE_STRING;
+import static org.jetbrains.uast.util.UTypeConstraint.STRING;
+import static org.jetbrains.uast.util.UastSignatureChecker.matchesSignature;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
@@ -40,6 +42,8 @@ import org.jetbrains.uast.UReturnExpression;
 import org.jetbrains.uast.UThrowExpression;
 import org.jetbrains.uast.UastLiteralUtils;
 import org.jetbrains.uast.UastUtils;
+import org.jetbrains.uast.util.UTypeConstraint;
+import org.jetbrains.uast.util.UastSignatureChecker;
 import org.jetbrains.uast.visitor.AbstractUastVisitor;
 
 import java.util.Collections;
@@ -73,20 +77,19 @@ public class BadHostnameVerifierDetector extends Detector implements Detector.Ua
 
     @Override
     public void checkClass(@NonNull JavaContext context, @NonNull UClass declaration) {
-        for (UFunction method : UastUtils.findFunctions(declaration, "verify")) {
-            if (UastLintUtils.functionMatches(method, null, false,
-                    TYPE_STRING, "javax.net.ssl.SSLSession")) {
+        for (UFunction function : UastUtils.findFunctions(declaration, "verify")) {
+            if (matchesSignature(function, STRING, UTypeConstraint.make("javax.net.ssl.SSLSession"))) {
                 ComplexVisitor visitor = new ComplexVisitor(context);
                 declaration.accept(visitor);
                 if (visitor.isComplex()) {
                     return;
                 }
 
-                Location location = context.getLocation(method.getNameElement());
+                Location location = context.getLocation(function.getNameElement());
                 String message = String.format("`%1$s` always returns `true`, which " +
                                 "could cause insecure network traffic due to trusting "
                                 + "TLS/SSL server certificates for wrong hostnames",
-                        method.getName());
+                        function.getName());
                 context.report(ISSUE, location, message);
                 break;
             }

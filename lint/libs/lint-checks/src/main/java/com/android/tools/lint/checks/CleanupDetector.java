@@ -46,8 +46,11 @@ import org.jetbrains.uast.UElement;
 import org.jetbrains.uast.UExpression;
 import org.jetbrains.uast.UFunction;
 import org.jetbrains.uast.UIfExpression;
+import org.jetbrains.uast.ULoopExpression;
+import org.jetbrains.uast.UQualifiedExpression;
 import org.jetbrains.uast.UReturnExpression;
 import org.jetbrains.uast.UType;
+import org.jetbrains.uast.UUnaryExpression;
 import org.jetbrains.uast.UVariable;
 import org.jetbrains.uast.UWhileExpression;
 import org.jetbrains.uast.UastBinaryOperator;
@@ -171,9 +174,10 @@ public class CleanupDetector extends Detector implements Detector.UastScanner {
 
     // ---- Implements UastScanner ----
 
+
     @Nullable
     @Override
-    public List<String> getApplicableMethodNames() {
+    public List<String> getApplicableFunctionNames() {
         return Arrays.asList(
                 // FragmentManager commit check
                 BEGIN_TRANSACTION,
@@ -281,8 +285,11 @@ public class CleanupDetector extends Detector implements Detector.UastScanner {
         }
     }
 
-    private static void checkRecycled(@NonNull final JavaContext context, @NonNull UElement node,
-            @NonNull final String recycleType, @NonNull final String recycleName) {
+    private static void checkRecycled(
+            @NonNull final JavaContext context,
+            @NonNull UCallExpression node,
+            @NonNull final String recycleType,
+            @NonNull final String recycleName) {
         UVariable boundVariable = getVariableElement(node, context);
         if (boundVariable == null) {
             return;
@@ -361,27 +368,16 @@ public class CleanupDetector extends Detector implements Detector.UastScanner {
                     @Override
                     protected boolean isCleanupCall(@NonNull UCallExpression call) {
                         if (isTransactionCommitMethodCall(mContext, call)) {
-                            UExpression operand = UastUtils.getReceiver(call);
-                            if (operand != null) {
-                                UDeclaration resolved = UastUtils.resolveIfCan(operand, mContext);
+                            List<UExpression> callChain = UastUtils.getQualifiedChain(call);
+                            if (callChain.isEmpty()) {
+                                return false;
+                            }
+                            UExpression maybeVariable = callChain.get(0);
+                            if (maybeVariable != null) {
+                                UDeclaration resolved = UastUtils.resolveIfCan(maybeVariable, mContext);
                                 //noinspection SuspiciousMethodCalls
                                 if (resolved != null && mVariables.contains(resolved)) {
                                     return true;
-                                } else if (resolved instanceof UFunction
-                                        && operand instanceof UCallExpression
-                                        && isCommittedInChainedCalls(mContext, (UCallExpression) operand)) {
-                                    // Check that the target of the committed chains is the
-                                    // right variable!
-                                    while (operand instanceof UCallExpression) {
-                                        operand = UastUtils.getReceiver((UCallExpression) operand);
-                                    }
-                                    if (operand instanceof UReferenceExpression) {
-                                        resolved = ((UReferenceExpression) operand).resolve(mContext);
-                                        //noinspection SuspiciousMethodCalls
-                                        if (resolved != null && mVariables.contains(resolved)) {
-                                            return true;
-                                        }
-                                    }
                                 }
                             }
                         } else if (isShowFragmentMethodCall(mContext, call)) {
@@ -417,20 +413,16 @@ public class CleanupDetector extends Detector implements Detector.UastScanner {
         //    getFragmentManager().beginTransaction().addToBackStack("test")
         //            .disallowAddToBackStack().hide(mFragment2).setBreadCrumbShortTitle("test")
         //            .show(mFragment2).setCustomAnimations(0, 0).commit();
-        UElement parent = skipParentheses(node.getParent());
-        while (parent != null) {
-            if (parent instanceof UCallExpression) {
-                UCallExpression methodInvocation = (UCallExpression) parent;
+        List<UExpression> chain = UastUtils.getQualifiedChain(node);
+        if (!chain.isEmpty()) {
+            UExpression lastExpression = chain.get(chain.size() - 1);
+            if (lastExpression instanceof UCallExpression) {
+                UCallExpression methodInvocation = (UCallExpression) lastExpression;
                 if (isTransactionCommitMethodCall(context, methodInvocation)
                         || isShowFragmentMethodCall(context, methodInvocation)) {
                     return true;
                 }
-            } else if (!(parent instanceof UReferenceExpression)) {
-                // reference expressions are method references
-                return false;
             }
-
-            parent = skipParentheses(parent.getParent());
         }
 
         return false;
@@ -544,20 +536,16 @@ public class CleanupDetector extends Detector implements Detector.UastScanner {
 
     private static boolean isEditorCommittedInChainedCalls(@NonNull JavaContext context,
             @NonNull UCallExpression node) {
-        UElement parent = skipParentheses(node.getParent());
-        while (parent != null) {
-            if (parent instanceof UCallExpression) {
-                UCallExpression methodInvocation = (UCallExpression) parent;
+        List<UExpression> chain = UastUtils.getQualifiedChain(node);
+        if (!chain.isEmpty()) {
+            UExpression lastExpression = chain.get(chain.size() - 1);
+            if (lastExpression instanceof UCallExpression) {
+                UCallExpression methodInvocation = (UCallExpression) lastExpression;
                 if (isEditorCommitMethodCall(context, methodInvocation)
                         || isEditorApplyMethodCall(context, methodInvocation)) {
                     return true;
                 }
-            } else if (!(parent instanceof UReferenceExpression)) {
-                // reference expressions are method references
-                return false;
             }
-
-            parent = skipParentheses(parent.getParent());
         }
 
         return false;
@@ -598,32 +586,32 @@ public class CleanupDetector extends Detector implements Detector.UastScanner {
         if (context.getProject().getMinSdkVersion().getApiLevel() >= 9) {
             // See if the return value is read: can only replace commit with
             // apply if the return value is not considered
+
+            UElement qualifiedNode = node;
             UElement parent = skipParentheses(node.getParent());
             while (parent instanceof UReferenceExpression) {
+                qualifiedNode = parent;
                 parent = skipParentheses(parent.getParent());
             }
-            boolean returnValueIgnored = false;
-            if ((parent instanceof UCallExpression && !(parent instanceof JavaUAssertExpression)) ||
-                    parent instanceof UClass ||
-                    parent instanceof UBlockExpression ||
-                    (parent instanceof UExpression && ((UExpression) parent).isStatement())) {
-                returnValueIgnored = true;
-            } else if (parent instanceof UExpression) {
-                if (parent instanceof UIfExpression) {
-                    returnValueIgnored = ((UIfExpression)parent).getCondition() != node;
-                } else if (parent instanceof UWhileExpression) {
-                    returnValueIgnored = ((UWhileExpression)parent).getCondition() != node;
-                } else if (parent instanceof UDoWhileExpression) {
-                    returnValueIgnored = ((UDoWhileExpression)parent).getCondition() != node;
-                } else if (parent instanceof JavaUAssertExpression) {
-                    returnValueIgnored = ((JavaUAssertExpression)parent).getCondition() != node;
-                } else if (parent instanceof UReturnExpression
-                        || parent instanceof UDeclarationsExpression) {
-                    returnValueIgnored = false;
-                } else {
-                    returnValueIgnored = true;
-                }
+            boolean returnValueIgnored = true;
+
+            if (parent instanceof UCallExpression
+                    || parent instanceof UVariable
+                    || parent instanceof UBinaryExpression
+                    || parent instanceof UUnaryExpression
+                    || parent instanceof UReturnExpression) {
+                returnValueIgnored = false;
+            } else if (parent instanceof UIfExpression) {
+                UExpression condition = ((UIfExpression) parent).getCondition();
+                returnValueIgnored = !condition.equals(qualifiedNode);
+            } else if (parent instanceof UWhileExpression) {
+                UExpression condition = ((UWhileExpression) parent).getCondition();
+                returnValueIgnored = !condition.equals(qualifiedNode);
+            } else if (parent instanceof UDoWhileExpression) {
+                UExpression condition = ((UDoWhileExpression) parent).getCondition();
+                returnValueIgnored = !condition.equals(qualifiedNode);
             }
+
             if (returnValueIgnored) {
                 String message = "Consider using `apply()` instead; `commit` writes "
                         + "its data to persistent storage immediately, whereas "
@@ -635,24 +623,30 @@ public class CleanupDetector extends Detector implements Detector.UastScanner {
 
     /** Returns the variable the expression is assigned to, if any */
     @Nullable
-    private static UVariable getVariableElement(@NonNull UElement rhs, UastContext context) {
-        return getVariableElement(rhs, false, context);
+    private static UVariable getVariableElement(
+            @NonNull UCallExpression callExpression, UastContext context) {
+        return getVariableElement(callExpression, false, context);
     }
 
     @Nullable
-    private static UVariable getVariableElement(@NonNull UElement rhs,
+    private static UVariable getVariableElement(@NonNull UCallExpression callExpression,
             boolean allowChainedCalls, UastContext context) {
-        UElement parent = skipParentheses(rhs.getParent());
+        UElement parent = skipParentheses(
+                UastUtils.getQualifiedParentOrThis(callExpression).getParent());
 
         // Handle some types of chained calls; e.g. you might have
         //    var = prefs.edit().put(key,value)
         // and here we want to skip past the put call
         if (allowChainedCalls) {
             while (true) {
-                if ((parent instanceof UReferenceExpression)) {
+                if ((parent instanceof UQualifiedExpression)) {
                     UElement parentParent = skipParentheses(parent.getParent());
-                    if ((parentParent instanceof UCallExpression)) {
+                    if ((parentParent instanceof UQualifiedExpression)) {
                         parent = skipParentheses(parentParent.getParent());
+                    } else if (parentParent instanceof UVariable
+                            || parentParent instanceof UBinaryExpression) {
+                        parent = parentParent;
+                        break;
                     } else {
                         break;
                     }
@@ -734,7 +728,7 @@ public class CleanupDetector extends Detector implements Detector.UastScanner {
 
         @Override
         public boolean visitCallExpression(UCallExpression call) {
-            if (mContainsCleanup || !isFunctionCall(call)) {
+            if (mContainsCleanup) {
                 return super.visitCallExpression(call);
             }
 

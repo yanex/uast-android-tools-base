@@ -353,52 +353,6 @@ public class UastLintUtils {
         return ret;
     }
 
-    public static boolean functionMatches(
-            @NonNull UFunction function, @NonNull String... argumentTypes) {
-        return functionMatches(function, null, false, argumentTypes);
-    }
-
-    public static boolean functionMatches(
-            @NonNull UFunction function,
-            @Nullable String containingClassFqName,
-            boolean allowInherit,
-            @NonNull String... argumentTypes) {
-        if (containingClassFqName != null && allowInherit) {
-            UClass containingClass = UastUtils.getContainingClass(function);
-            if (containingClass == null) {
-                return false;
-            }
-
-            if (!containingClass.isSubclassOf(containingClassFqName, false)) {
-                return false;
-            }
-        }
-
-
-        return parametersMatch(function, argumentTypes);
-    }
-
-    public static boolean parametersMatch(
-            @NonNull UFunction function,
-            @NonNull String... parameterTypes) {
-        if (parameterTypes.length != function.getValueParameterCount()) {
-            return false;
-        }
-
-        List<UVariable> parameters = function.getValueParameters();
-        for (int i = 0; i < parameters.size(); i++) {
-            UType type = parameters.get(i).getType();
-            String requiredType = parameterTypes[i];
-            if (requiredType.equals("java.lang.String") && !type.isString()) {
-                return false;
-            } else if (!type.matchesFqName(requiredType)) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
     @Nullable
     public static UElement getParentOfAnyType(
             UElement node,

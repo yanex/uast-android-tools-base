@@ -54,6 +54,7 @@ import org.jetbrains.uast.UVariable;
 import org.jetbrains.uast.UastUtils;
 import org.jetbrains.uast.expressions.UReferenceExpression;
 import org.jetbrains.uast.util.UastExpressionUtils;
+import org.jetbrains.uast.util.UastSignatureChecker;
 import org.jetbrains.uast.visitor.AbstractUastVisitor;
 import org.w3c.dom.Element;
 
@@ -466,9 +467,9 @@ public class UnsafeBroadcastReceiverDetector extends Detector
         if (!mReceiversWithProtectedBroadcastIntentFilter.contains(qualifiedName)) {
             return;
         }
-        for (UFunction method : UastUtils.findFunctions(declaration, "onReceive")) {
-            if (UastLintUtils.parametersMatch(method, CLASS_CONTEXT, CLASS_INTENT)) {
-                checkOnReceive(context, method);
+        for (UFunction function : UastUtils.findFunctions(declaration, "onReceive")) {
+            if (UastSignatureChecker.matchesSignature(function, CLASS_CONTEXT, CLASS_INTENT)) {
+                checkOnReceive(context, function);
             }
         }
 

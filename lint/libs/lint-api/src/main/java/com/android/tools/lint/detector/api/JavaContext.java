@@ -59,6 +59,7 @@ import org.jetbrains.uast.UExpressionValue;
 import org.jetbrains.uast.UFile;
 import org.jetbrains.uast.USimpleReferenceExpression;
 import org.jetbrains.uast.UastContext;
+import org.jetbrains.uast.UastConverter;
 import org.jetbrains.uast.UastLanguagePlugin;
 import org.jetbrains.uast.psi.PsiElementBacked;
 import org.jetbrains.uast.util.UastExpressionUtils;
@@ -302,6 +303,12 @@ public class JavaContext extends Context implements UastContext {
     @Override
     public List<UastLanguagePlugin> getLanguagePlugins() {
         return mParser.getLanguagePlugins();
+    }
+
+    @NotNull
+    @Override
+    public List<UastConverter> getConverters() {
+        return UastContext.DefaultImpls.getConverters(this);
     }
 
     @Nullable

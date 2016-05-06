@@ -20,6 +20,8 @@ import com.android.annotations.Nullable;
 import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.project.Project;
 
+import org.jetbrains.uast.UastContext;
+import org.jetbrains.uast.UastConverter;
 import org.jetbrains.uast.UastLanguagePlugin;
 
 import java.util.ArrayList;

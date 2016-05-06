@@ -16,6 +16,10 @@
 
 package com.android.tools.lint.checks;
 
+import static org.jetbrains.uast.util.UTypeConstraint.PRIMITIVE_INT;
+import static org.jetbrains.uast.util.UTypeConstraint.STRING;
+import static org.jetbrains.uast.util.UastSignatureChecker.matchesSignature;
+
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.tools.lint.client.api.JavaParser;
@@ -32,6 +36,9 @@ import com.android.tools.lint.detector.api.Severity;
 import org.jetbrains.uast.UCallExpression;
 import org.jetbrains.uast.UExpression;
 import org.jetbrains.uast.UFunction;
+import org.jetbrains.uast.UVariable;
+import org.jetbrains.uast.util.UTypeConstraint;
+import org.jetbrains.uast.util.UastSignatureChecker;
 import org.jetbrains.uast.visitor.UastVisitor;
 
 import java.util.Collections;
@@ -71,13 +78,9 @@ public class GetSignaturesDetector extends Detector implements Detector.UastScan
     public void visitFunctionCallExpression(@NonNull JavaContext context,
             @Nullable UastVisitor visitor, @NonNull UCallExpression call,
             @NonNull UFunction function) {
-        if (!UastLintUtils.functionMatches(function, PACKAGE_MANAGER_CLASS, true,
-                JavaParser.TYPE_STRING,
-                JavaParser.TYPE_INT)) {
-            return;
-        }
-
-        if (call.getValueArgumentCount() != 2) {
+        if (!function.matchesContaining(PACKAGE_MANAGER_CLASS, true)
+                || !matchesSignature(function, STRING, PRIMITIVE_INT)
+                || call.getValueArgumentCount() != 2) {
             return;
         }
 

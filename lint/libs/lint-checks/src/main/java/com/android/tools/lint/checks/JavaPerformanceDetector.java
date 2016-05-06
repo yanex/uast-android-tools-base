@@ -27,6 +27,9 @@ import static com.android.tools.lint.client.api.JavaParser.TYPE_INT;
 import static com.android.tools.lint.client.api.JavaParser.TYPE_INTEGER_WRAPPER;
 import static com.android.tools.lint.client.api.JavaParser.TYPE_LONG_WRAPPER;
 import static com.android.tools.lint.detector.api.LintUtils.skipParentheses;
+import static org.jetbrains.uast.util.UTypeConstraint.PRIMITIVE_BOOLEAN;
+import static org.jetbrains.uast.util.UTypeConstraint.PRIMITIVE_INT;
+import static org.jetbrains.uast.util.UastSignatureChecker.matchesSignature;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
@@ -59,7 +62,9 @@ import org.jetbrains.uast.UThrowExpression;
 import org.jetbrains.uast.UType;
 import org.jetbrains.uast.UastBinaryOperator;
 import org.jetbrains.uast.UastUtils;
+import org.jetbrains.uast.util.UTypeConstraint;
 import org.jetbrains.uast.util.UastExpressionUtils;
+import org.jetbrains.uast.util.UastSignatureChecker;
 import org.jetbrains.uast.visitor.AbstractUastVisitor;
 import org.jetbrains.uast.visitor.UastVisitor;
 
@@ -392,7 +397,7 @@ public class JavaPerformanceDetector extends Detector implements Detector.UastSc
          */
         private static boolean isOnDrawMethod(@NonNull UFunction node) {
             return ON_DRAW.equals(node.getName())
-                    && UastLintUtils.parametersMatch(node, CLASS_CANVAS);
+                    && matchesSignature(node, UTypeConstraint.make(CLASS_CANVAS));
         }
 
         /**
@@ -402,8 +407,8 @@ public class JavaPerformanceDetector extends Detector implements Detector.UastSc
          *      int right, int bottom)}
          */
         private static boolean isOnLayoutMethod(@NonNull UFunction node) {
-            return ON_LAYOUT.equals(node.getName()) && UastLintUtils.parametersMatch(node,
-                    TYPE_BOOLEAN, TYPE_INT, TYPE_INT, TYPE_INT, TYPE_INT);
+            return ON_LAYOUT.equals(node.getName()) && matchesSignature(node,
+                    PRIMITIVE_BOOLEAN, PRIMITIVE_INT, PRIMITIVE_INT, PRIMITIVE_INT, PRIMITIVE_INT);
         }
 
         /**
@@ -411,8 +416,8 @@ public class JavaPerformanceDetector extends Detector implements Detector.UastSc
          * {@code protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec)}
          */
         private static boolean isOnMeasureMethod(@NonNull UFunction node) {
-            return ON_MEASURE.equals(node.getName()) && UastLintUtils.parametersMatch(node,
-                    TYPE_INT, TYPE_INT);
+            return ON_MEASURE.equals(node.getName()) && matchesSignature(node,
+                    PRIMITIVE_INT, PRIMITIVE_INT);
         }
 
         /**
@@ -420,8 +425,8 @@ public class JavaPerformanceDetector extends Detector implements Detector.UastSc
          * {@code public void layout(int l, int t, int r, int b)}
          */
         private static boolean isLayoutMethod(@NonNull UFunction node) {
-            return LAYOUT.equals(node.getName()) && UastLintUtils.parametersMatch(node,
-                    TYPE_INT, TYPE_INT, TYPE_INT, TYPE_INT);
+            return node.matchesName(LAYOUT) && matchesSignature(node,
+                    PRIMITIVE_INT, PRIMITIVE_INT, PRIMITIVE_INT, PRIMITIVE_INT);
         }
 
         /**

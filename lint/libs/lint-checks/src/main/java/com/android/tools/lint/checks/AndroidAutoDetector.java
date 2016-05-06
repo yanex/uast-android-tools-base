@@ -25,6 +25,8 @@ import static com.android.tools.lint.client.api.JavaParser.TYPE_STRING;
 import static com.android.xml.AndroidManifest.NODE_ACTION;
 import static com.android.xml.AndroidManifest.NODE_APPLICATION;
 import static com.android.xml.AndroidManifest.NODE_METADATA;
+import static org.jetbrains.uast.util.UTypeConstraint.STRING;
+import static org.jetbrains.uast.util.UastSignatureChecker.matchesSignature;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
@@ -47,6 +49,8 @@ import com.android.tools.lint.detector.api.XmlContext;
 import org.jetbrains.uast.UClass;
 import org.jetbrains.uast.UFunction;
 import org.jetbrains.uast.UastModifier;
+import org.jetbrains.uast.util.UTypeConstraint;
+import org.jetbrains.uast.util.UastSignatureChecker;
 import org.jetbrains.uast.visitor.AbstractUastVisitor;
 import org.w3c.dom.Attr;
 import org.w3c.dom.Element;
@@ -382,8 +386,8 @@ public class AndroidAutoDetector extends ResourceXmlDetector
 
         @Override
         public boolean visitFunction(UFunction node) {
-            if (METHOD_MEDIA_SESSION_PLAY_FROM_SEARCH.equals(node.getName())
-                    && UastLintUtils.parametersMatch(node, TYPE_STRING, BUNDLE_ARG)) {
+            if (node.matchesName(METHOD_MEDIA_SESSION_PLAY_FROM_SEARCH)
+                    && matchesSignature(node, STRING, UTypeConstraint.make(BUNDLE_ARG))) {
                 mOnPlayFromSearchFound = true;
             }
 

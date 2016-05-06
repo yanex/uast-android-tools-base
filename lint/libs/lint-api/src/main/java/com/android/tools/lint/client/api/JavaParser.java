@@ -37,6 +37,7 @@ import com.intellij.psi.PsiJavaFile;
 import com.intellij.psi.PsiType;
 
 import org.jetbrains.uast.UFile;
+import org.jetbrains.uast.UastConverter;
 import org.jetbrains.uast.UastLanguagePlugin;
 
 import java.io.File;
