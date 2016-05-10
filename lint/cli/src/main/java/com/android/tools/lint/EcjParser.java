@@ -127,12 +127,17 @@ import org.eclipse.jdt.internal.compiler.parser.Parser;
 import org.eclipse.jdt.internal.compiler.problem.AbortCompilation;
 import org.eclipse.jdt.internal.compiler.problem.DefaultProblemFactory;
 import org.eclipse.jdt.internal.compiler.problem.ProblemReporter;
+import org.jetbrains.uast.UAnnotated;
+import org.jetbrains.uast.UAnnotation;
+import org.jetbrains.uast.UFunction;
+import org.jetbrains.uast.UVariable;
 import org.jetbrains.uast.UastContext;
 import org.jetbrains.uast.UastConverter;
 import org.jetbrains.uast.UastLanguagePlugin;
 
 import java.io.File;
 import java.lang.reflect.Modifier;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
@@ -349,6 +354,38 @@ public class EcjParser extends JavaParser {
         } catch (Throwable t) {
             mClient.log(t, "ECJ compiler crashed");
         }
+    }
+
+    @Override
+    public List<UAnnotation> getAnnotationsWithExternal(UAnnotated annotated) {
+        ExternalAnnotationRepository manager = ExternalAnnotationRepository.get(mClient);
+        Collection<UAnnotation> externalAnnotations = manager.getAnnotations(annotated);
+
+        if (externalAnnotations.isEmpty()) {
+            return annotated.getAnnotations();
+        }
+
+        List<UAnnotation> allAnnotations = new ArrayList<UAnnotation>();
+        allAnnotations.addAll(annotated.getAnnotations());
+        allAnnotations.addAll(externalAnnotations);
+        return allAnnotations;
+    }
+
+    @Override
+    public List<UAnnotation> getParameterAnnotationsWithExternal(UFunction function, int index) {
+        UVariable annotated = function.getValueParameters().get(index);
+        ExternalAnnotationRepository manager = ExternalAnnotationRepository.get(mClient);
+        Collection<UAnnotation> externalAnnotations =
+                manager.getParameterAnnotations(function, index);
+
+        if (externalAnnotations.isEmpty()) {
+            return annotated.getAnnotations();
+        }
+
+        List<UAnnotation> allAnnotations = new ArrayList<UAnnotation>();
+        allAnnotations.addAll(annotated.getAnnotations());
+        allAnnotations.addAll(externalAnnotations);
+        return allAnnotations;
     }
 
     /**

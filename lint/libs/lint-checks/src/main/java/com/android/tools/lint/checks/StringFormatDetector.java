@@ -1125,7 +1125,7 @@ public class StringFormatDetector extends ResourceXmlDetector implements Detecto
         }
 
         UExpression argument = args.get(argIndex);
-        ResourceUrl resource = ResourceEvaluator.getResource(context.getEvaluator(), context, argument);
+        ResourceUrl resource = ResourceEvaluator.getResource(context, argument);
         if (resource == null || resource.framework || resource.type != ResourceType.STRING) {
             return;
         }

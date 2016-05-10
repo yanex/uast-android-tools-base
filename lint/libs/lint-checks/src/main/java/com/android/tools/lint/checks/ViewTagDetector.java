@@ -102,7 +102,7 @@ public class ViewTagDetector extends Detector implements Detector.UastScanner {
         if (type == null) {
             return;
         }
-        UClass typeClass = type.resolve(context);
+        UClass typeClass = type.resolveToClass(context);
         if (typeClass == null) {
             return;
         }

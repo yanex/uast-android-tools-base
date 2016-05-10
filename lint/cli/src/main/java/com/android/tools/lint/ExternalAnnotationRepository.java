@@ -41,6 +41,7 @@ import com.android.tools.lint.client.api.JavaParser.ResolvedMethod;
 import com.android.tools.lint.client.api.JavaParser.ResolvedPackage;
 import com.android.tools.lint.client.api.JavaParser.TypeDescriptor;
 import com.android.tools.lint.client.api.LintClient;
+import com.android.tools.lint.client.api.UastLintUtils;
 import com.android.tools.lint.detector.api.LintUtils;
 import com.android.tools.lint.detector.api.Project;
 import com.android.utils.XmlUtils;
@@ -60,19 +61,26 @@ import org.eclipse.jdt.internal.compiler.lookup.MethodBinding;
 import org.eclipse.jdt.internal.compiler.lookup.PackageBinding;
 import org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding;
 import org.jetbrains.uast.EmptyUExpression;
+import org.jetbrains.uast.UAnnotated;
 import org.jetbrains.uast.UAnnotation;
 import org.jetbrains.uast.UArrayValue;
 import org.jetbrains.uast.UBooleanValue;
+import org.jetbrains.uast.UClass;
 import org.jetbrains.uast.UConstantValue;
 import org.jetbrains.uast.UExpression;
 import org.jetbrains.uast.UExpressionValue;
+import org.jetbrains.uast.UFile;
+import org.jetbrains.uast.UFunction;
 import org.jetbrains.uast.UNamedExpression;
 import org.jetbrains.uast.UQualifiedExpression;
 import org.jetbrains.uast.USimpleConstantValue;
 import org.jetbrains.uast.UStringValue;
 import org.jetbrains.uast.UType;
 import org.jetbrains.uast.UTypeValue;
+import org.jetbrains.uast.UVariable;
+import org.jetbrains.uast.UastFunctionKind;
 import org.jetbrains.uast.UastUtils;
+import org.jetbrains.uast.UastVariableKind;
 import org.jetbrains.uast.dumb.DumbUAnnotation;
 import org.jetbrains.uast.dumb.DumbUQualifiedExpression;
 import org.jetbrains.uast.expressions.UastExpressionFactory;
@@ -295,6 +303,31 @@ public class ExternalAnnotationRepository {
         }
 
         return null;
+    }
+
+    @NonNull
+    public Collection<UAnnotation> getAnnotations(@NonNull UAnnotated annotated) {
+        for (AnnotationsDatabase database : mDatabases) {
+            Collection<UAnnotation> annotations = database.getAnnotations(annotated);
+            if (annotations != null) {
+                return annotations;
+            }
+        }
+
+        return Collections.emptyList();
+    }
+
+    @NonNull
+    public Collection<UAnnotation> getParameterAnnotations(@NonNull UFunction function,
+            int parameterIndex) {
+        for (AnnotationsDatabase database : mDatabases) {
+            Collection<UAnnotation> annotations = database.getAnnotations(function, parameterIndex);
+            if (annotations != null) {
+                return annotations;
+            }
+        }
+
+        return Collections.emptyList();
     }
 
     @Nullable
@@ -611,6 +644,28 @@ public class ExternalAnnotationRepository {
         // ---- Query methods ----
 
         @Nullable
+        public List<UAnnotation> getAnnotations(@NonNull UAnnotated annotated) {
+            if (annotated instanceof UClass) {
+                ClassInfo c = findClass((UClass) annotated);
+                if (c != null) {
+                    return c.psiAnnotations;
+                }
+            } else if (annotated instanceof UFunction) {
+                MethodInfo m = findMethod((UFunction) annotated);
+                if (m != null) {
+                    return m.psiAnnotations;
+                }
+            } else if (annotated instanceof UVariable) {
+                FieldInfo f = findField((UVariable) annotated);
+                if (f != null) {
+                    return f.psiAnnotations;
+                }
+            }
+
+            return null;
+        }
+
+        @Nullable
         public ResolvedAnnotation getAnnotation(@NonNull ResolvedMethod method,
                 @NonNull String type) {
             MethodInfo m = findMethod(method);
@@ -672,6 +727,22 @@ public class ExternalAnnotationRepository {
 
             if (m.getParameterAnnotations() != null) {
                 return m.getParameterAnnotations().get(parameterIndex);
+            }
+
+            return null;
+        }
+
+        @Nullable
+        public Collection<UAnnotation> getAnnotations(
+                @NonNull UFunction method,
+                int parameterIndex) {
+            MethodInfo m = findMethod(method);
+            if (m == null) {
+                return null;
+            }
+
+            if (m.getParameterAnnotations() != null) {
+                return m.psiParameterAnnotations.get(parameterIndex);
             }
 
             return null;
@@ -923,6 +994,15 @@ public class ExternalAnnotationRepository {
         }
 
         @Nullable
+        private ClassInfo findClass(@NonNull UClass cls) {
+            String fqName = cls.getFqName();
+            if (fqName == null) {
+                return null;
+            }
+            return mClassMap.get(fqName);
+        }
+
+        @Nullable
         private ClassInfo findClass(@NonNull ReferenceBinding cls) {
             return null;
             //return cls.compoundName != null ? mClassMap.get(getTypeName(cls.compoundName)) : null;
@@ -942,6 +1022,50 @@ public class ExternalAnnotationRepository {
 
         private ClassInfo findPackage(@NonNull ResolvedPackage pkg) {
             return mClassMap.get(pkg.getName() +".package-info");
+        }
+
+        @Nullable
+        private ClassInfo findPackage(@NonNull UFile file) {
+            String packageName = file.getPackageFqName();
+            if (packageName == null) {
+                return null;
+            }
+            return mClassMap.get(packageName + ".package-info");
+        }
+
+        @Nullable
+        private MethodInfo findMethod(@NonNull UFunction function) {
+            UClass containingClass = UastUtils.getContainingClass(function);
+
+            if (containingClass == null) {
+                return null;
+            }
+
+            ClassInfo c = findClass(containingClass);
+            if (c == null) {
+                return null;
+            }
+
+            if (c.methods == null) {
+                return null;
+            }
+
+            Collection<MethodInfo> methods = c.methods.get(function.getName());
+            if (methods == null) {
+                return null;
+            }
+            boolean constructor = function.getKind() == UastFunctionKind.CONSTRUCTOR;
+            for (MethodInfo m : methods) {
+                if (constructor != m.constructor) {
+                    continue;
+                }
+
+                if (m.parameters.equals(UastLintUtils.getSignature(function))) {
+                    return m;
+                }
+            }
+
+            return null;
         }
 
         @Nullable
@@ -1122,6 +1246,25 @@ public class ExternalAnnotationRepository {
         }
 
         @Nullable
+        private FieldInfo findField(@Nullable UVariable field) {
+            if (field.getKind() != UastVariableKind.MEMBER) {
+                return null;
+            }
+
+            UClass containingClass = UastUtils.getContainingClass(field);
+            if (containingClass == null) {
+                return null;
+            }
+
+            ClassInfo c = findClass(containingClass);
+            if (c.fields == null) {
+                return null;
+            }
+
+            return c.fields.get(field.getName());
+        }
+
+        @Nullable
         private FieldInfo findField(@NonNull ResolvedField field) {
             ResolvedClass containingClass = field.getContainingClass();
             if (containingClass == null) {
@@ -1231,7 +1374,7 @@ public class ExternalAnnotationRepository {
                 }
             } else {
                 if (method.psiAnnotations == null) {
-                    method.psiAnnotations = method.psiAnnotations = Lists.newArrayListWithExpectedSize(annotations.size());
+                    method.psiAnnotations = Lists.newArrayListWithExpectedSize(annotations.size());
                 }
                 method.psiAnnotations.addAll(annotations);
             }

@@ -52,11 +52,14 @@ import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.PsiTreeUtil;
 
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.uast.UAnnotated;
+import org.jetbrains.uast.UAnnotation;
 import org.jetbrains.uast.UCallExpression;
 import org.jetbrains.uast.UConstantValue;
 import org.jetbrains.uast.UElement;
 import org.jetbrains.uast.UExpressionValue;
 import org.jetbrains.uast.UFile;
+import org.jetbrains.uast.UFunction;
 import org.jetbrains.uast.USimpleReferenceExpression;
 import org.jetbrains.uast.UastContext;
 import org.jetbrains.uast.UastConverter;
@@ -65,6 +68,8 @@ import org.jetbrains.uast.psi.PsiElementBacked;
 import org.jetbrains.uast.util.UastExpressionUtils;
 
 import java.io.File;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 
@@ -260,6 +265,14 @@ public class JavaContext extends Context implements UastContext {
         }
 
         return Location.NONE;
+    }
+
+    public List<UAnnotation> getAnnotationsWithExternal(UAnnotated annotated) {
+        return mParser.getAnnotationsWithExternal(annotated);
+    }
+
+    public List<UAnnotation> getParameterAnnotationsWithExternal(UFunction function, int index) {
+        return mParser.getParameterAnnotationsWithExternal(function, index);
     }
 
     @NonNull

@@ -66,9 +66,11 @@ import com.android.tools.lint.detector.api.TextFormat;
 import com.android.utils.XmlUtils;
 import com.google.common.base.Joiner;
 import com.google.common.collect.Sets;
+import com.intellij.mock.MockProject;
+import com.intellij.psi.JavaPsiFacade;
+import com.intellij.psi.PsiClassType;
 
 import org.jetbrains.uast.UAnnotation;
-import org.jetbrains.uast.UArrayType;
 import org.jetbrains.uast.UBinaryExpression;
 import org.jetbrains.uast.UBinaryExpressionWithType;
 import org.jetbrains.uast.UCallExpression;
@@ -82,6 +84,9 @@ import org.jetbrains.uast.UIfExpression;
 import org.jetbrains.uast.ULiteralExpression;
 import org.jetbrains.uast.UParenthesizedExpression;
 import org.jetbrains.uast.UPrefixExpression;
+import org.jetbrains.uast.UResolvedArrayType;
+import org.jetbrains.uast.UResolvedType;
+import org.jetbrains.uast.UResolvedTypeParameter;
 import org.jetbrains.uast.UTryExpression;
 import org.jetbrains.uast.UType;
 import org.jetbrains.uast.UVariable;
@@ -98,7 +103,11 @@ import org.jetbrains.uast.UConstantValue;
 import org.jetbrains.uast.USimpleConstantValue;
 import org.jetbrains.uast.UTypeValue;
 import org.jetbrains.uast.expressions.UReferenceExpression;
-import org.jetbrains.uast.java.JavaUVariable;
+import org.jetbrains.uast.java.JavaConverter;
+import org.jetbrains.uast.java.JavaUCallExpression;
+import org.jetbrains.uast.java.JavaUClass;
+import org.jetbrains.uast.java.JavaUFunction;
+import org.jetbrains.uast.java.JavaUType;
 import org.jetbrains.uast.util.UastExpressionUtils;
 import org.jetbrains.uast.visitor.AbstractUastVisitor;
 import org.jetbrains.uast.visitor.UastVisitor;
@@ -425,8 +434,7 @@ public class SupportAnnotationDetector extends Detector implements Detector.Uast
             return;
         }
 
-        EnumSet<ResourceType> types = ResourceEvaluator.getResourceTypes(
-                context.getEvaluator(), context, argument);
+        EnumSet<ResourceType> types = ResourceEvaluator.getResourceTypes(context, argument);
 
         if (types != null && types.contains(COLOR)
                 && !isIgnoredInIde(COLOR_USAGE, context, argument)) {
@@ -822,7 +830,7 @@ public class SupportAnnotationDetector extends Detector implements Detector.Uast
             functions.addAll(parentFunction.getOverriddenDeclarations(context));
 
             for (UFunction function : functions) {
-                for (UAnnotation annotation : function.getAnnotations()) {
+                for (UAnnotation annotation : context.getAnnotationsWithExternal(function)) {
                     String name = annotation.getFqName();
                     if (name != null && name.startsWith(SUPPORT_ANNOTATIONS_PREFIX)
                             && name.endsWith(THREAD_SUFFIX)) {
@@ -840,7 +848,7 @@ public class SupportAnnotationDetector extends Detector implements Detector.Uast
             }
 
             for (UClass clazz : classes) {
-                for (UAnnotation annotation : clazz.getAnnotations()) {
+                for (UAnnotation annotation : context.getAnnotationsWithExternal(clazz)) {
                     String name = annotation.getFqName();
                     if (name != null && name.startsWith(SUPPORT_ANNOTATIONS_PREFIX)
                             && name.endsWith(THREAD_SUFFIX)) {
@@ -902,8 +910,7 @@ public class SupportAnnotationDetector extends Detector implements Detector.Uast
             @NonNull EnumSet<ResourceType> expectedType,
             @NonNull UCallExpression call,
             @NonNull UFunction calledMethod) {
-        EnumSet<ResourceType> actual = ResourceEvaluator.getResourceTypes(
-                context.getEvaluator(), context, argument);
+        EnumSet<ResourceType> actual = ResourceEvaluator.getResourceTypes(context, argument);
 
         if (actual == null && (!isNumber(argument) || isZero(argument) || isMinusOne(argument)) ) {
             return;
@@ -972,8 +979,8 @@ public class SupportAnnotationDetector extends Detector implements Detector.Uast
                     // obtainStyledAttributes(AttributeSet set, int[] attrs)
                     // obtainStyledAttributes(int resid, int[] attrs)
                     for (argIndex = 0; argIndex < args.size(); argIndex++) {
-                        UType type = params.get(argIndex).getType();
-                        if (type instanceof UArrayType) {
+                        UResolvedType type = params.get(argIndex).getType().resolve();
+                        if (type instanceof UResolvedArrayType) {
                             break;
                         }
                     }
@@ -1367,7 +1374,7 @@ public class SupportAnnotationDetector extends Detector implements Detector.Uast
             if (resolved instanceof UVariable) {
                 UVariable variable = (UVariable) resolved;
 
-                if (variable.getType() instanceof UArrayType) {
+                if (variable.getType().resolve() instanceof UResolvedArrayType) {
                     // It's pointing to an array reference; we can't check these individual
                     // elements (because we can't jump from ResolvedNodes to AST elements; this
                     // is part of the motivation for the PSI change in lint 2.0), but we also
@@ -1396,10 +1403,10 @@ public class SupportAnnotationDetector extends Detector implements Detector.Uast
         } else if (UastExpressionUtils.isNewArrayWithInitializer(argument)) {
             UCallExpression call = (UCallExpression) argument;
 
-            UType maybeArrayType = call.resolveType(context);
-            if (maybeArrayType instanceof UArrayType) {
-                UArrayType arrayType = (UArrayType) maybeArrayType;
-                UType deepType = arrayType.findDeepElementType();
+            UResolvedType maybeArrayType = call.resolveTypeOrEmpty(context).resolve();
+            if (maybeArrayType instanceof UResolvedArrayType) {
+                UResolvedArrayType arrayType = (UResolvedArrayType) maybeArrayType;
+                UType deepType = arrayType.findDeepElementType().getType();
 
                 if (deepType.isInt() || deepType.isLong()) {
                     for (UExpression expression : call.getValueArguments()) {
@@ -1437,7 +1444,8 @@ public class SupportAnnotationDetector extends Detector implements Detector.Uast
                         return;
                     }
                 } else if (expression instanceof UTypeValue) {
-                    UDeclaration resolved = ((UTypeValue) expression).getValue().resolve(context);
+                    UDeclaration resolved = ((UTypeValue) expression)
+                            .getValue().resolveToClass(context);
                     if (resolved != null && resolved.equals(value)) {
                         return;
                     }
@@ -1601,7 +1609,7 @@ public class SupportAnnotationDetector extends Detector implements Detector.Uast
 
     @NonNull
     static List<UAnnotation> filterRelevantAnnotations(@NonNull List<UAnnotation> annotations,
-            UastContext context) {
+            JavaContext context) {
         if (annotations.isEmpty()) {
             return Collections.emptyList();
         }
@@ -1643,7 +1651,7 @@ public class SupportAnnotationDetector extends Detector implements Detector.Uast
                 continue;
             }
 
-            List<UAnnotation> innerAnnotations = cls.getAnnotations();
+            List<UAnnotation> innerAnnotations = context.getAnnotationsWithExternal(cls);
             for (int j = 0; j < innerAnnotations.size(); j++) {
                 UAnnotation inner = innerAnnotations.get(j);
                 String a = inner.getFqName();
@@ -1703,39 +1711,38 @@ public class SupportAnnotationDetector extends Detector implements Detector.Uast
             return super.visitCallExpression(call);
         }
 
-        public void checkCall(UFunction method, UCallExpression call) {
+        public void checkCall(UFunction function, UCallExpression call) {
             List<UAnnotation> annotations = filterRelevantAnnotations(
-                    UastLintUtils.getAllAnnotations(method, mContext), mContext);
+                    UastLintUtils.getAnnotationWithOverriddenWithExternal(function, mContext), mContext);
             for (UAnnotation annotation : annotations) {
-                checkMethodAnnotation(mContext, method, call, annotation);
+                checkMethodAnnotation(mContext, function, call, annotation);
             }
 
             // Look for annotations on the class as well: these trickle
             // down to all the methods in the class
-            UClass containingClass = UastUtils.getContainingClass(method);
+            UClass containingClass = UastUtils.getContainingClass(function);
             if (containingClass != null) {
-                annotations = UastLintUtils.getAllAnnotationsInHierarchy(containingClass);
+                annotations = mContext.getAnnotationsWithExternal(containingClass);
                 annotations = filterRelevantAnnotations(annotations, mContext);
                 for (UAnnotation annotation : annotations) {
-                    checkMethodAnnotation(mContext, method, call, annotation);
+                    checkMethodAnnotation(mContext, function, call, annotation);
                 }
             }
 
             List<UExpression> arguments = call.getValueArguments();
-            List<UVariable> parameters = method.getValueParameters();
+            List<UVariable> parameters = function.getValueParameters();
             for (int i = 0, n = Math.min(parameters.size(), arguments.size());
                     i < n;
                     i++) {
                 UExpression argument = arguments.get(i);
-                UVariable parameter = parameters.get(i);
-                annotations = UastLintUtils.getAllAnnotationsInHierarchy(parameter);
+                annotations = mContext.getParameterAnnotationsWithExternal(function, i);
                 annotations = filterRelevantAnnotations(annotations, mContext);
-                checkParameterAnnotations(mContext, argument, call, method, annotations);
+                checkParameterAnnotations(mContext, argument, call, function, annotations);
             }
             // last parameter is varargs (same parameter annotations)
             for (int i = parameters.size(); i < arguments.size(); i++) {
                 UExpression argument = arguments.get(i);
-                checkParameterAnnotations(mContext, argument, call, method, annotations);
+                checkParameterAnnotations(mContext, argument, call, function, annotations);
             }
         }
     }

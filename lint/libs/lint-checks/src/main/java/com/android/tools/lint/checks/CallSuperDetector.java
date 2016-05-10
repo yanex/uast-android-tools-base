@@ -148,8 +148,8 @@ public class CallSuperDetector extends Detector implements Detector.UastScanner 
 
         // Look up annotations metadata
         for (UFunction superFunction : superFunctions) {
-            List<UAnnotation> annotations = filterRelevantAnnotations(superFunction.getAnnotations(),
-                    context);
+            List<UAnnotation> annotations = filterRelevantAnnotations(
+                    context.getAnnotationsWithExternal(superFunction), context);
             for (UAnnotation annotation : annotations) {
                 String signature = annotation.getFqName();
                 if (CALL_SUPER_ANNOTATION.equals(signature)) {

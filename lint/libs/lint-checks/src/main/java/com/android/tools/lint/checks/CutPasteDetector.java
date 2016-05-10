@@ -52,9 +52,19 @@ import com.intellij.psi.PsiTypeCastExpression;
 import com.intellij.psi.PsiWhiteSpace;
 import com.intellij.psi.util.PsiTreeUtil;
 
+import org.jetbrains.uast.UArrayAccessExpression;
+import org.jetbrains.uast.UBinaryExpression;
+import org.jetbrains.uast.UCallExpression;
 import org.jetbrains.uast.UContinueExpression;
 import org.jetbrains.uast.UElement;
+import org.jetbrains.uast.UExpression;
 import org.jetbrains.uast.UFunction;
+import org.jetbrains.uast.UQualifiedExpression;
+import org.jetbrains.uast.UVariable;
+import org.jetbrains.uast.UastUtils;
+import org.jetbrains.uast.expressions.UReferenceExpression;
+import org.jetbrains.uast.util.UastExpressionUtils;
+import org.jetbrains.uast.visitor.UastVisitor;
 
 import java.util.Collections;
 import java.util.List;
@@ -63,7 +73,7 @@ import java.util.Map;
 /**
  * Detector looking for cut & paste issues
  */
-public class CutPasteDetector extends Detector implements Detector.JavaPsiScanner {
+public class CutPasteDetector extends Detector implements Detector.UastScanner {
     /** The main issue discovered by this detector */
     public static final Issue ISSUE = Issue.create(
             "CutPasteId", //$NON-NLS-1$
@@ -83,8 +93,8 @@ public class CutPasteDetector extends Detector implements Detector.JavaPsiScanne
                     CutPasteDetector.class,
                     Scope.JAVA_FILE_SCOPE));
 
-    private PsiMethod mLastMethod;
-    private Map<String, PsiMethodCallExpression> mIds;
+    private UFunction mLastMethod;
+    private Map<String, UCallExpression> mIds;
     private Map<String, String> mLhs;
     private Map<String, String> mCallOperands;
 
@@ -92,22 +102,25 @@ public class CutPasteDetector extends Detector implements Detector.JavaPsiScanne
     public CutPasteDetector() {
     }
 
-    // ---- Implements JavaScanner ----
+    // ---- Implements UastScanner ----
 
+
+    @Nullable
     @Override
-    public List<String> getApplicableMethodNames() {
+    public List<String> getApplicableFunctionNames() {
         return Collections.singletonList("findViewById"); //$NON-NLS-1$
     }
 
     @Override
-    public void visitMethod(@NonNull JavaContext context, @Nullable JavaElementVisitor visitor,
-            @NonNull PsiMethodCallExpression call, @NonNull PsiMethod calledMethod) {
+    public void visitFunctionCallExpression(@NonNull JavaContext context,
+            @Nullable UastVisitor visitor, @NonNull UCallExpression call,
+            @NonNull UFunction function) {
         String lhs = getLhs(call);
         if (lhs == null) {
             return;
         }
 
-        PsiMethod method = PsiTreeUtil.getParentOfType(call, PsiMethod.class, false);
+        UFunction method = UastUtils.getParentOfType(call, UFunction.class, false);
         if (method == null) {
             return; // prevent doing the same work for multiple findViewById calls in same method
         } else if (method != mLastMethod) {
@@ -117,22 +130,24 @@ public class CutPasteDetector extends Detector implements Detector.JavaPsiScanne
             mLastMethod = method;
         }
 
-        PsiReferenceExpression methodExpression = call.getMethodExpression();
-        String callOperand = methodExpression.getQualifier() != null
-                ? methodExpression.getQualifier().getText() : "";
+        UExpression receiver = UastUtils.getReceiver(call);
+        String callOperand =  receiver != null ? receiver.renderString() : "";
 
-        PsiExpression[] arguments = call.getArgumentList().getExpressions();
-        if (arguments.length == 0) {
+        List<UExpression> arguments = call.getValueArguments();
+        if (arguments.isEmpty()) {
             return;
         }
-        PsiExpression first = arguments[0];
-        if (first instanceof PsiReferenceExpression) {
-            PsiReferenceExpression psiReferenceExpression = (PsiReferenceExpression) first;
-            String id = psiReferenceExpression.getReferenceName();
-            PsiElement operand = psiReferenceExpression.getQualifier();
-            if (operand instanceof PsiReferenceExpression) {
-                PsiReferenceExpression type = (PsiReferenceExpression) operand;
-                if (RESOURCE_CLZ_ID.equals(type.getReferenceName())) {
+        UExpression first = arguments.get(0);
+        if (first instanceof UReferenceExpression) {
+            UReferenceExpression referenceExpression = (UReferenceExpression) first;
+            String id = referenceExpression.getIdentifier();
+            UExpression operand = referenceExpression instanceof UQualifiedExpression
+                    ? ((UQualifiedExpression) referenceExpression).getReceiver()
+                    : null;
+
+            if (operand instanceof UReferenceExpression) {
+                UReferenceExpression type = (UReferenceExpression) operand;
+                if (RESOURCE_CLZ_ID.equals(type.getIdentifier())) {
                     if (mIds.containsKey(id)) {
                         if (lhs.equals(mLhs.get(id))) {
                             return;
@@ -140,7 +155,7 @@ public class CutPasteDetector extends Detector implements Detector.JavaPsiScanne
                         if (!callOperand.equals(mCallOperands.get(id))) {
                             return;
                         }
-                        PsiMethodCallExpression earlierCall = mIds.get(id);
+                        UCallExpression earlierCall = mIds.get(id);
                         if (!isReachableFrom(method, earlierCall, call)) {
                             return;
                         }
@@ -151,7 +166,7 @@ public class CutPasteDetector extends Detector implements Detector.JavaPsiScanne
                         context.report(ISSUE, call, location, String.format(
                                 "The id `%1$s` has already been looked up in this method; possible "
                                         +
-                                        "cut & paste error?", first.getText()));
+                                        "cut & paste error?", first.originalString()));
                     } else {
                         mIds.put(id, call);
                         mLhs.put(id, lhs);
@@ -164,30 +179,35 @@ public class CutPasteDetector extends Detector implements Detector.JavaPsiScanne
     }
 
     @Nullable
-    private static String getLhs(@NonNull PsiMethodCallExpression call) {
-        PsiElement parent = skipParentheses(call.getParent());
-        if (parent instanceof PsiTypeCastExpression) {
+    private static String getLhs(@NonNull UCallExpression call) {
+        UElement parent = skipParentheses(call.getParent());
+        if (parent != null && UastExpressionUtils.isTypeCast(parent)) {
             parent = parent.getParent();
         }
 
-        if (parent instanceof PsiLocalVariable) {
-            return ((PsiLocalVariable)parent).getName();
-        } else if (parent instanceof PsiBinaryExpression) {
-            PsiBinaryExpression be = (PsiBinaryExpression) parent;
-            PsiExpression left = be.getLOperand();
-            if (left instanceof PsiReference) {
-                return left.getText();
-            } else if (left instanceof PsiArrayAccessExpression) {
-                PsiArrayAccessExpression aa = (PsiArrayAccessExpression) left;
-                return aa.getArrayExpression().getText();
+        if (parent == null) {
+            return null;
+        }
+
+        if (parent instanceof UVariable) {
+            return ((UVariable) parent).getName();
+        } else if (parent instanceof UBinaryExpression) {
+            UBinaryExpression be = (UBinaryExpression) parent;
+            UExpression left = be.getLeftOperand();
+            if (left instanceof UReferenceExpression) {
+                return ((UReferenceExpression) left).getIdentifier();
+            } else if (left instanceof UArrayAccessExpression) {
+                UArrayAccessExpression aa = (UArrayAccessExpression) left;
+                return aa.getReceiver().renderString();
             }
-        } else if (parent instanceof PsiAssignmentExpression) {
-            PsiExpression left = ((PsiAssignmentExpression) parent).getLExpression();
-            if (left instanceof PsiReference) {
-                return left.getText();
-            } else if (left instanceof PsiArrayAccessExpression) {
-                PsiArrayAccessExpression aa = (PsiArrayAccessExpression) left;
-                return aa.getArrayExpression().getText();
+        } else if (UastExpressionUtils.isAssignment(parent)) {
+            //noinspection ConstantConditions
+            UExpression left = ((UBinaryExpression) parent).getLeftOperand();
+            if (left instanceof UReferenceExpression) {
+                return ((UReferenceExpression) left).getIdentifier();
+            } else if (left instanceof UArrayAccessExpression) {
+                UArrayAccessExpression aa = (UArrayAccessExpression) left;
+                return aa.getReceiver().renderString();
             }
         }
 

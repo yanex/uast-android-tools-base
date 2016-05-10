@@ -252,7 +252,7 @@ public class CleanupDetector extends Detector implements Detector.UastScanner {
                 (containingClass.isSubclassOf(CLASS_CONTEXT, false) ||
                         containingClass.isSubclassOf(CLASS_RESOURCES, false))) {
             UType returnType = method.getReturnType();
-            UClass cls = returnType != null ? returnType.resolve(context) : null;
+            UClass cls = returnType != null ? returnType.resolveToClass(context) : null;
             if (cls != null && cls.matchesFqName(SdkConstants.CLS_TYPED_ARRAY)) {
                 checkRecycled(context, node, SdkConstants.CLS_TYPED_ARRAY, RECYCLE);
             }

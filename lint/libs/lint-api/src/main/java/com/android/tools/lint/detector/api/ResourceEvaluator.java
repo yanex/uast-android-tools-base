@@ -24,6 +24,7 @@ import static com.android.SdkConstants.CLASS_V4_FRAGMENT;
 import static com.android.SdkConstants.CLS_TYPED_ARRAY;
 import static com.android.SdkConstants.R_CLASS;
 import static com.android.SdkConstants.SUPPORT_ANNOTATIONS_PREFIX;
+import static com.android.tools.lint.client.api.UastLintUtils.getAnnotationWithOverriddenWithExternal;
 import static com.android.tools.lint.client.api.UastLintUtils.toAndroidReferenceViaResolve;
 
 import com.android.annotations.NonNull;
@@ -87,7 +88,6 @@ public class ResourceEvaluator {
     public static final String COLOR_INT_ANNOTATION = SUPPORT_ANNOTATIONS_PREFIX + "ColorInt"; //$NON-NLS-1$
     public static final String RES_SUFFIX = "Res";
 
-    private final JavaEvaluator mEvaluator;
     private final JavaContext mContext;
 
     private boolean mAllowDereference = true;
@@ -95,11 +95,9 @@ public class ResourceEvaluator {
     /**
      * Creates a new resource evaluator
      *
-     * @param evaluator the evaluator to use to resolve annotations references, if any
      * @param context
      */
-    public ResourceEvaluator(@Nullable JavaEvaluator evaluator, JavaContext context) {
-        mEvaluator = evaluator;
+    public ResourceEvaluator(JavaContext context) {
         mContext = context;
     }
 
@@ -120,48 +118,42 @@ public class ResourceEvaluator {
      * Evaluates the given node and returns the resource reference (type and name) it
      * points to, if any
      *
-     * @param evaluator the evaluator to use to look up annotations
      * @param element the node to compute the constant value for
      * @return the corresponding resource url (type and name)
      */
     @Nullable
     public static ResourceUrl getResource(
-            @Nullable JavaEvaluator evaluator,
             @NonNull JavaContext context,
             @NonNull PsiElement element) {
-        return new ResourceEvaluator(evaluator, context).getResource(element);
+        return new ResourceEvaluator(context).getResource(element);
     }
 
     /**
      * Evaluates the given node and returns the resource reference (type and name) it
      * points to, if any
      *
-     * @param evaluator the evaluator to use to look up annotations
      * @param element the node to compute the constant value for
      * @return the corresponding resource url (type and name)
      */
     @Nullable
     public static ResourceUrl getResource(
-            @Nullable JavaEvaluator evaluator,
             @NonNull JavaContext context,
             @NonNull UElement element) {
-        return new ResourceEvaluator(evaluator, context).getResource(element);
+        return new ResourceEvaluator(context).getResource(element);
     }
 
     /**
      * Evaluates the given node and returns the resource types implied by the given element,
      * if any.
      *
-     * @param evaluator the evaluator to use to look up annotations
      * @param element the node to compute the constant value for
      * @return the corresponding resource types
      */
     @Nullable
     public static EnumSet<ResourceType> getResourceTypes(
-            @Nullable JavaEvaluator evaluator,
             @NonNull JavaContext context,
             @NonNull UElement element) {
-        return new ResourceEvaluator(evaluator, context).getResourceTypes(element);
+        return new ResourceEvaluator(context).getResourceTypes(element);
     }
 
     /**
@@ -377,11 +369,15 @@ public class ResourceEvaluator {
         } else if (element instanceof UParenthesizedExpression) {
             UParenthesizedExpression parenthesizedExpression = (UParenthesizedExpression) element;
             return getResourceTypes(parenthesizedExpression.getExpression());
-        } else if (element instanceof UQualifiedExpression && mAllowDereference) {
-            UQualifiedExpression qualifiedExpression = (UQualifiedExpression) element;
-            UExpression selector = qualifiedExpression.getSelector();
-            if ((selector instanceof UCallExpression)) {
-                UCallExpression call = (UCallExpression) selector;
+        } else if ((element instanceof UQualifiedExpression && mAllowDereference)
+                || element instanceof UCallExpression) {
+            UElement probablyCallExpression = element;
+            if (element instanceof UQualifiedExpression) {
+                UQualifiedExpression qualifiedExpression = (UQualifiedExpression) element;
+                probablyCallExpression = qualifiedExpression.getSelector();
+            }
+            if ((probablyCallExpression instanceof UCallExpression)) {
+                UCallExpression call = (UCallExpression) probablyCallExpression;
                 UFunction method = call.resolve(mContext);
                 UClass containingClass = UastUtils.getContainingClass(method);
                 if (method != null && containingClass != null) {
@@ -436,10 +432,7 @@ public class ResourceEvaluator {
 
     @Nullable
     private EnumSet<ResourceType> getTypesFromAnnotations(UAnnotated owner) {
-        if (mEvaluator == null) {
-            return null;
-        }
-        for (UAnnotation annotation : UastLintUtils.getAllAnnotationsInHierarchy(owner)) {
+        for (UAnnotation annotation : getAnnotationWithOverriddenWithExternal(owner, mContext)) {
             String signature = annotation.getFqName();
             if (signature == null) {
                 continue;

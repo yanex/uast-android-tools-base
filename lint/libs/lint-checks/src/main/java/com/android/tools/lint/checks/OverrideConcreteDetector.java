@@ -94,7 +94,7 @@ public class OverrideConcreteDetector extends Detector implements Detector.UastS
             return;
         }
 
-        int minSdk = Math.max(context.getProject().getMinSdk(), getTargetApi(declaration));
+        int minSdk = Math.max(context.getProject().getMinSdk(), getTargetApi(declaration, context));
         if (minSdk >= CONCRETE_IN) {
             return;
         }
@@ -150,9 +150,9 @@ public class OverrideConcreteDetector extends Detector implements Detector.UastS
         }
     }
 
-    private static int getTargetApi(@NonNull UClass node) {
+    private static int getTargetApi(@NonNull UClass node, @NonNull JavaContext context) {
         while (node != null) {
-            int targetApi = ApiDetector.getTargetApi(node.getAnnotations());
+            int targetApi = ApiDetector.getTargetApi(context.getAnnotationsWithExternal(node));
             if (targetApi != -1) {
                 return targetApi;
             }

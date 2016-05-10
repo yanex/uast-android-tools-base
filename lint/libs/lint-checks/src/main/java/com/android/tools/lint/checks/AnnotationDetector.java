@@ -54,7 +54,6 @@ import static com.android.tools.lint.detector.api.LintUtils.getAutoBoxedType;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.tools.lint.client.api.IssueRegistry;
-import com.android.tools.lint.client.api.UastLintUtils;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.ConstantEvaluator;
 import com.android.tools.lint.detector.api.Detector;
@@ -65,51 +64,13 @@ import com.android.tools.lint.detector.api.Location;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
 import com.android.tools.lint.detector.api.TextFormat;
-import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import com.intellij.psi.PsiAnnotation;
-/*import com.intellij.psi.JavaElementVisitor;
-import com.intellij.psi.PsiAnnotation;
-import com.intellij.psi.PsiAnnotationMemberValue;
-import com.intellij.psi.PsiAnnotationOwner;
-import com.intellij.psi.PsiArrayInitializerMemberValue;
-import com.intellij.psi.PsiArrayType;
-import com.intellij.psi.PsiAssignmentExpression;
-import com.intellij.psi.PsiClass;
-import com.intellij.psi.PsiClassType;
-import com.intellij.psi.PsiCodeBlock;
-import com.intellij.psi.PsiConditionalExpression;
-import com.intellij.psi.PsiDeclarationStatement;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiExpression;
-import com.intellij.psi.PsiExpressionStatement;
-import com.intellij.psi.PsiField;
-import com.intellij.psi.PsiJavaCodeReferenceElement;
-import com.intellij.psi.PsiLiteral;
-import com.intellij.psi.PsiLocalVariable;
-import com.intellij.psi.PsiMethod;
-import com.intellij.psi.PsiMethodCallExpression;
-import com.intellij.psi.PsiModifierList;
-import com.intellij.psi.PsiModifierListOwner;
-import com.intellij.psi.PsiNameValuePair;
-import com.intellij.psi.PsiParameter;
-import com.intellij.psi.PsiParenthesizedExpression;
-import com.intellij.psi.PsiReference;
-import com.intellij.psi.PsiReferenceExpression;
-import com.intellij.psi.PsiStatement;
-import com.intellij.psi.PsiSwitchLabelStatement;
-import com.intellij.psi.PsiSwitchStatement;
-import com.intellij.psi.PsiType;
-import com.intellij.psi.PsiTypeCastExpression;
-import com.intellij.psi.PsiVariable;
-import com.intellij.psi.util.PsiTreeUtil;*/
 
 import org.jetbrains.uast.UAnnotated;
 import org.jetbrains.uast.UAnnotation;
-import org.jetbrains.uast.UArrayType;
 import org.jetbrains.uast.UArrayValue;
 import org.jetbrains.uast.UBinaryExpressionWithType;
 import org.jetbrains.uast.UCallExpression;
@@ -119,11 +80,12 @@ import org.jetbrains.uast.UDeclaration;
 import org.jetbrains.uast.UDeclarationsExpression;
 import org.jetbrains.uast.UElement;
 import org.jetbrains.uast.UExpression;
-import org.jetbrains.uast.UExpressionValue;
 import org.jetbrains.uast.UFunction;
 import org.jetbrains.uast.UIfExpression;
 import org.jetbrains.uast.ULiteralExpression;
 import org.jetbrains.uast.UParenthesizedExpression;
+import org.jetbrains.uast.UResolvedArrayType;
+import org.jetbrains.uast.UResolvedType;
 import org.jetbrains.uast.UStringValue;
 import org.jetbrains.uast.USwitchExpression;
 import org.jetbrains.uast.UType;
@@ -415,7 +377,7 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
                 UClass cls = annotation.resolve(mContext);
                 if (cls != null) {
                     if (cls.getKind() == UastClassKind.ANNOTATION) {
-                        for (UAnnotation ann : cls.getAnnotations()) {
+                        for (UAnnotation ann : mContext.getAnnotationsWithExternal(cls)) {
                             if (ann.matchesName(INT_DEF_ANNOTATION)) {
                                 checkTargetType(annotation, TYPE_INT, TYPE_LONG, true);
                             } else if (STRING_DEF_ANNOTATION.equals(type)) {
@@ -463,13 +425,14 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
                 }
 
                 if (allowCollection) {
-                    if (type instanceof UArrayType) {
+                    UResolvedType resolvedType = type.resolve();
+                    if (type instanceof UResolvedArrayType) {
                         // For example, int[]
-                        type = ((UArrayType) type).findDeepElementType();
+                        type = ((UResolvedArrayType) resolvedType).findDeepElementType().getType();
                     } else {
                         // For example, List<Integer>
                         if (type.getArguments().size() == 1) {
-                            UClass resolved = type.resolve(mContext);
+                            UClass resolved = type.resolveToClass(mContext);
                             if (resolved != null &&
                                     resolved.isSubclassOf("java.util.Collection", false)) {
                                 type = type.getArguments().get(0).getType();

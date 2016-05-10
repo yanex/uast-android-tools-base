@@ -80,7 +80,7 @@ public class ResourceEvaluatorTest extends TestCase {
             }
         });
         UExpression expression = reference.get();
-        ResourceEvaluator evaluator = new ResourceEvaluator(context.getEvaluator(), context)
+        ResourceEvaluator evaluator = new ResourceEvaluator(context)
                 .allowDereference(allowDereference);
 
         if (getSpecificType) {

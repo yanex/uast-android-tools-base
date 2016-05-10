@@ -96,7 +96,7 @@ public class JavaScriptInterfaceDetector extends Detector implements Detector.Ua
         UExpression first = arguments.get(0);
         UType evaluated = first.getExpressionType();
         if (evaluated != null) {
-            UClass cls = evaluated.resolve(context);
+            UClass cls = evaluated.resolveToClass(context);
             if (cls == null) {
                 return;
             }

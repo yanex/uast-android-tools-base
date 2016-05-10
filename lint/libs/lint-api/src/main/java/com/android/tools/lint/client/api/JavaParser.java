@@ -31,12 +31,17 @@ import com.google.common.annotations.Beta;
 import com.google.common.base.Splitter;
 import com.intellij.mock.MockProject;
 import com.intellij.openapi.util.TextRange;
+import com.intellij.openapi.vfs.VfsUtilCore;
+import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiJavaFile;
 import com.intellij.psi.PsiType;
 
+import org.jetbrains.uast.UAnnotated;
+import org.jetbrains.uast.UAnnotation;
 import org.jetbrains.uast.UFile;
+import org.jetbrains.uast.UFunction;
 import org.jetbrains.uast.UastConverter;
 import org.jetbrains.uast.UastLanguagePlugin;
 
@@ -183,11 +188,11 @@ public abstract class JavaParser {
                 // Don't bother with this error if it's in a different file during single-file analysis
                 return Location.NONE;
             }
-            File ioFile = context.getEvaluator().getFile(containingFile);
-            if (ioFile == null) {
+            VirtualFile virtualFile = containingFile.getVirtualFile();
+            if (virtualFile == null) {
                 return Location.NONE;
             }
-            file = ioFile;
+            file = VfsUtilCore.virtualToIoFile(virtualFile);
         }
         return Location.create(file, context.getContents(), range.getStartOffset(),
                                range.getEndOffset());
@@ -324,6 +329,15 @@ public abstract class JavaParser {
 
         return getLocation(context, element);
     }
+
+    public List<UAnnotation> getAnnotationsWithExternal(UAnnotated annotated) {
+        return annotated.getAnnotations();
+    }
+
+    public List<UAnnotation> getParameterAnnotationsWithExternal(UFunction function, int index) {
+        return function.getValueParameters().get(index).getAnnotations();
+    }
+
     /**
      * Creates a light-weight handle to a location for the given node. It can be
      * turned into a full fledged location by

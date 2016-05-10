@@ -23,7 +23,6 @@ import com.intellij.psi.PsiType;
 import junit.framework.TestCase;
 
 import org.intellij.lang.annotations.Language;
-import org.jetbrains.uast.UArrayType;
 import org.jetbrains.uast.UExpression;
 import org.jetbrains.uast.UFile;
 import org.jetbrains.uast.UType;

@@ -100,7 +100,7 @@ public class SslCertificateSocketFactoryDetector extends Detector
                     UType type = args.get(0).getExpressionType();
                     if (type != null
                             && ((type.matchesFqName(INET_ADDRESS_CLASS))
-                            || type.resolveOrEmpty(context).isSubclassOf(INET_ADDRESS_CLASS, false))) {
+                            || type.resolveToClassOrEmpty(context).isSubclassOf(INET_ADDRESS_CLASS, false))) {
                         context.report(CREATE_SOCKET, call, context.getLocation(call),
                                 "Use of `SSLCertificateSocketFactory.createSocket()` " +
                                         "with an InetAddress parameter can cause insecure " +

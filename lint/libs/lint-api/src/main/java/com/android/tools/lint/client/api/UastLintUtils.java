@@ -18,12 +18,14 @@ package com.android.tools.lint.client.api;
 
 import static org.jetbrains.uast.UastModifier.IMMUTABLE;
 import static org.jetbrains.uast.UastModifier.STATIC;
+import static org.jetbrains.uast.UastModifier.VARARG;
 
 import com.android.SdkConstants;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.resources.ResourceType;
 import com.android.tools.lint.detector.api.ConstantEvaluator;
+import com.android.tools.lint.detector.api.JavaContext;
 import com.google.common.base.Joiner;
 
 import org.jetbrains.annotations.NotNull;
@@ -32,6 +34,7 @@ import org.jetbrains.uast.java.JavaAbstractUExpression;
 import org.jetbrains.uast.java.JavaUClass;
 import org.jetbrains.uast.java.JavaUFile;
 import org.jetbrains.uast.java.JavaUVariable;
+import org.jetbrains.uast.kinds.UastVariance;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -97,22 +100,20 @@ public class UastLintUtils {
         return value;
     }
 
-    public static List<UAnnotation> getAllAnnotations(UFunction function, UastContext context) {
-        List<UAnnotation> annotations = new ArrayList<UAnnotation>(function.getAnnotations());
-        for (UFunction superFunction : function.getOverriddenDeclarations(context)) {
-            annotations.addAll(superFunction.getAnnotations());
-        }
-        return annotations;
-    }
-
-    public static List<UAnnotation> getAllAnnotationsInHierarchy(UAnnotated annotated) {
-        List<UAnnotation> annotations = new ArrayList<UAnnotation>(0);
-        UElement element = annotated;
-        while (element != null) {
-            if (element instanceof UAnnotated) {
-                annotations.addAll(((UAnnotated) element).getAnnotations());
+    @NonNull
+    public static List<UAnnotation> getAnnotationWithOverriddenWithExternal(
+            @NonNull UAnnotated annotated,
+            @NonNull JavaContext context) {
+        List<UAnnotation> annotations = new ArrayList<UAnnotation>(
+                context.getAnnotationsWithExternal(annotated));
+        if (annotated instanceof UDeclaration) {
+            UDeclaration declaration = (UDeclaration) annotated;
+            for (UDeclaration superDeclaration : declaration.getOverriddenDeclarations(context)) {
+                if (superDeclaration instanceof UAnnotated) {
+                    annotations.addAll(context.getAnnotationsWithExternal(
+                            (UAnnotated) superDeclaration));
+                }
             }
-            element = element.getParent();
         }
         return annotations;
     }
@@ -370,5 +371,87 @@ public class UastLintUtils {
         }
 
         return null;
+    }
+
+    public static String getSignature(@NonNull UFunction function) {
+        StringBuilder signature = new StringBuilder();
+        for (UVariable variable : function.getValueParameters()) {
+            if (signature.length() > 0) {
+                signature.append(",");
+            }
+            signature.append(getSignature(variable.getType(), variable));
+        }
+        return signature.toString();
+    }
+
+    private static String getSignature(@NonNull UType type, @Nullable UVariable variable) {
+        String vararg = (variable != null && variable.hasModifier(VARARG)) ? "..." : "";
+        String ret;
+
+        UResolvedType resolvedType = type.resolve();
+        if (resolvedType instanceof UResolvedArrayType) {
+            ret = getSignature(((UResolvedArrayType) resolvedType).getElementType(), null) + "[]";
+        } else if (type.isPrimitive()) {
+            if (type.isInt()) {
+                ret = "int";
+            } else if (type.isByte()) {
+                ret = "byte";
+            } else if (type.isBoolean()) {
+                ret = "boolean";
+            } else if (type.isChar()) {
+                ret = "char";
+            } else if (type.isShort()) {
+                ret = "short";
+            } else if (type.isLong()) {
+                ret = "long";
+            } else if (type.isFloat()) {
+                ret = "float";
+            } else if (type.isDouble()) {
+                ret = "double";
+            } else {
+                throw new IllegalArgumentException("Invalid primitive type: " + type.getName());
+            }
+        } else {
+            StringBuilder sb = new StringBuilder();
+            boolean canHaveTypeArguments = true;
+
+            if (resolvedType instanceof UResolvedTypeParameter) {
+                sb.append(((UResolvedTypeParameter) resolvedType).getName());
+            } else if (resolvedType instanceof UResolvedClassType) {
+                sb.append(((UResolvedClassType) resolvedType).getFqName());
+            } else {
+                sb.append('?');
+                canHaveTypeArguments = false;
+            }
+
+            // Do not write type arguments if
+            if (canHaveTypeArguments && !type.getArguments().isEmpty()) {
+                sb.append('<');
+                boolean firstArg = true;
+                for (UTypeProjection projection : type.getArguments()) {
+                    if (!firstArg) {
+                        sb.append(',');
+                    }
+
+                    UastVariance variance = projection.getVariance();
+                    if (variance == UastVariance.COVARIANT) {
+                        sb.append("? extends ").append(getSignature(projection.getType(), null));
+                    } else if (variance == UastVariance.CONTRAVARIANT) {
+                        sb.append("? super ").append(getSignature(projection.getType(), null));
+                    } else if (variance == UastVariance.INVARIANT) {
+                        sb.append(getSignature(projection.getType(), null));
+                    } else {
+                        sb.append('?');
+                    }
+
+                    firstArg = false;
+                }
+                sb.append('>');
+            }
+
+            ret = sb.toString();
+        }
+
+        return ret + vararg;
     }
 }

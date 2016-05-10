@@ -22,7 +22,6 @@ import static com.android.SdkConstants.CLASS_CONTEXT;
 import com.android.SdkConstants;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.android.tools.lint.client.api.JavaEvaluator;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Detector;
 import com.android.tools.lint.detector.api.Implementation;
@@ -74,9 +73,7 @@ public class ViewConstructorDetector extends Detector implements Detector.UastSc
 
     // ---- Implements UastScanner ----
 
-    private static boolean isXmlConstructor(
-            @NonNull JavaEvaluator evaluator,
-            @NonNull UFunction function) {
+    private static boolean isXmlConstructor(@NonNull UFunction function) {
         // Accept
         //   android.content.Context
         //   android.content.Context,android.util.AttributeSet
@@ -112,7 +109,6 @@ public class ViewConstructorDetector extends Detector implements Detector.UastSc
     @Override
     public void checkClass(@NonNull JavaContext context, @NonNull UClass declaration) {
         // Only applies to concrete classes
-        JavaEvaluator evaluator = context.getEvaluator();
         if (declaration.hasModifier(UastModifier.ABSTRACT) || declaration.isAnonymous()) {
             // Ignore abstract classes
             return;
@@ -127,7 +123,7 @@ public class ViewConstructorDetector extends Detector implements Detector.UastSc
 
         boolean found = false;
         for (UFunction constructor : declaration.getConstructors()) {
-            if (isXmlConstructor(evaluator, constructor)) {
+            if (isXmlConstructor(constructor)) {
                 found = true;
                 break;
             }

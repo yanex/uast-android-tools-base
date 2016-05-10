@@ -585,7 +585,7 @@ public class RequiredAttributeDetector extends LayoutDetector implements Detecto
 
         String layout = null;
         int index = 0;
-        ResourceEvaluator evaluator = new ResourceEvaluator(context.getEvaluator(), context);
+        ResourceEvaluator evaluator = new ResourceEvaluator(context);
         for (UExpression expression : args) {
             ResourceUrl url = evaluator.getResource(expression);
             if (url != null && url.type == ResourceType.LAYOUT) {

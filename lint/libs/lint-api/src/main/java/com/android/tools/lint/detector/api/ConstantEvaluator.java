@@ -61,7 +61,6 @@ import com.intellij.psi.PsiTypeElement;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.PsiTreeUtil;
 
-import org.jetbrains.uast.UArrayType;
 import org.jetbrains.uast.UBinaryExpression;
 import org.jetbrains.uast.UBinaryExpressionWithType;
 import org.jetbrains.uast.UBlockExpression;
@@ -69,7 +68,6 @@ import org.jetbrains.uast.UCallExpression;
 import org.jetbrains.uast.UConstantValue;
 import org.jetbrains.uast.UDeclaration;
 import org.jetbrains.uast.UElement;
-import org.jetbrains.uast.UEnumValue;
 import org.jetbrains.uast.UExpression;
 import org.jetbrains.uast.UExpressionValue;
 import org.jetbrains.uast.UIfExpression;
@@ -77,6 +75,8 @@ import org.jetbrains.uast.ULiteralExpression;
 import org.jetbrains.uast.UParenthesizedExpression;
 import org.jetbrains.uast.UPrefixExpression;
 import org.jetbrains.uast.UResolvable;
+import org.jetbrains.uast.UResolvedArrayType;
+import org.jetbrains.uast.UResolvedType;
 import org.jetbrains.uast.USimpleConstantValue;
 import org.jetbrains.uast.UType;
 import org.jetbrains.uast.UVariable;
@@ -910,11 +910,13 @@ public class ConstantEvaluator {
             }
         } else if (UastExpressionUtils.isNewArrayWithDimensions((UExpression) node)) {
             UCallExpression call = (UCallExpression) node;
-            UType arrayType = call.resolveTypeOrEmpty(mContext);
-            if (arrayType instanceof UArrayType) {
-                UType elementType = ((UArrayType) arrayType).getArrayElementType();
+            UResolvedType resolvedType = call.resolveTypeOrEmpty(mContext).resolve();
+            if (resolvedType instanceof UResolvedArrayType) {
+                UType elementType = ((UResolvedArrayType) resolvedType).getElementType();
+                UResolvedType resolvedElementType = ((UType) elementType).resolve();
                 // Single-dimension array
-                if (!(elementType instanceof UArrayType) && call.getValueArgumentCount() == 1) {
+                if (!(resolvedElementType instanceof UResolvedArrayType)
+                        && call.getValueArgumentCount() == 1) {
                     Object lengthObj = evaluate(call.getValueArguments().get(0));
                     if (lengthObj instanceof Number) {
                         int length = ((Number) lengthObj).intValue();
@@ -947,11 +949,12 @@ public class ConstantEvaluator {
             }
         } else if (UastExpressionUtils.isNewArrayWithInitializer(node)) {
             UCallExpression call = (UCallExpression) node;
-            UType arrayType = call.resolveTypeOrEmpty(mContext);
-            if (arrayType instanceof UArrayType) {
-                UType elementType = ((UArrayType) arrayType).getArrayElementType();
+            UResolvedType resolvedType = call.resolveTypeOrEmpty(mContext).resolve();
+            if (resolvedType instanceof UResolvedArrayType) {
+                UType elementType = ((UResolvedArrayType) resolvedType).getElementType();
+                UResolvedType resolvedElementType = elementType.resolve();
                 // Single-dimension array
-                if (!(elementType instanceof UArrayType)) {
+                if (!(elementType instanceof UResolvedArrayType)) {
                     int length = call.getValueArgumentCount();
                     List<Object> evaluatedArgs = new ArrayList<Object>(length);
                     for (UExpression arg : call.getValueArguments()) {
