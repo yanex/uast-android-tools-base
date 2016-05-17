@@ -46,9 +46,8 @@ import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.vfs.StandardFileSystems;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileSystem;
-import com.intellij.psi.PsiFile;
+import com.intellij.psi.PsiElementFactory;
 import com.intellij.psi.PsiJavaFile;
-import com.intellij.psi.PsiManager;
 
 import org.eclipse.jdt.core.compiler.CategorizedProblem;
 import org.eclipse.jdt.core.compiler.IProblem;
@@ -131,8 +130,6 @@ import org.jetbrains.uast.UAnnotated;
 import org.jetbrains.uast.UAnnotation;
 import org.jetbrains.uast.UFunction;
 import org.jetbrains.uast.UVariable;
-import org.jetbrains.uast.UastContext;
-import org.jetbrains.uast.UastConverter;
 import org.jetbrains.uast.UastLanguagePlugin;
 
 import java.io.File;

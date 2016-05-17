@@ -79,6 +79,7 @@ import org.jetbrains.uast.UClass;
 import org.jetbrains.uast.UDeclaration;
 import org.jetbrains.uast.UElement;
 import org.jetbrains.uast.UExpression;
+import org.jetbrains.uast.UExpressionValue;
 import org.jetbrains.uast.UFunction;
 import org.jetbrains.uast.UIfExpression;
 import org.jetbrains.uast.ULiteralExpression;
@@ -1449,6 +1450,12 @@ public class SupportAnnotationDetector extends Detector implements Detector.Uast
                     if (resolved != null && resolved.equals(value)) {
                         return;
                     }
+                } else if (expression instanceof UExpressionValue) {
+                    UDeclaration resolved = UastUtils.resolveIfCan(
+                            ((UExpressionValue) expression).getValue(), context);
+                    if (resolved != null && resolved.equals(value)) {
+                        return;
+                    }
                 }
             }
 
@@ -1567,7 +1574,12 @@ public class SupportAnnotationDetector extends Detector implements Detector.Uast
                 }
             }
             if (s == null) {
-                s = allowedValue.getValue().toString();
+                Object value = allowedValue.getValue();
+                if (value instanceof UElement) {
+                    s = ((UElement) value).renderString();
+                } else {
+                    s = value.toString();
+                }
             }
             if (sb.length() > 0) {
                 sb.append(", ");
