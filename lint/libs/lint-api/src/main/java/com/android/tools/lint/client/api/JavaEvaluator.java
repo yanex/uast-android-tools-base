@@ -23,42 +23,35 @@ import com.intellij.psi.PsiAnnotation;
 import com.intellij.psi.PsiAnonymousClass;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiClassType;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiMember;
 import com.intellij.psi.PsiMethod;
-import com.intellij.psi.PsiMethodCallExpression;
 import com.intellij.psi.PsiModifier;
 import com.intellij.psi.PsiModifierList;
 import com.intellij.psi.PsiModifierListOwner;
 import com.intellij.psi.PsiParameter;
 import com.intellij.psi.PsiParameterList;
-import com.intellij.psi.PsiReference;
 import com.intellij.psi.PsiType;
-
-import java.io.File;
+import com.intellij.psi.util.InheritanceUtil;
+import com.intellij.psi.util.PsiTypesUtil;
 
 @SuppressWarnings("MethodMayBeStatic") // Some of these methods may be overridden by LintClients
 public abstract class JavaEvaluator {
-    public abstract boolean extendsClass(
+    public static boolean isSubClassOf(
             @Nullable PsiClass cls,
             @NonNull String className,
-            boolean strict);
+            boolean strict) {
+        return InheritanceUtil.isInheritor(cls, strict, className);
+    }
 
-    public abstract boolean implementsInterface(
-            @NonNull PsiClass cls,
-            @NonNull String interfaceName,
-            boolean strict);
-
-    public boolean isMemberInSubClassOf(
+    public static boolean isMemberInSubClassOf(
             @NonNull PsiMember method,
             @NonNull String className,
             boolean strict) {
         PsiClass containingClass = method.getContainingClass();
-        return containingClass != null && extendsClass(containingClass, className, strict);
+        return containingClass != null && isSubClassOf(containingClass, className, strict);
     }
 
-    public boolean isMemberInClass(
+    public static boolean isMemberInClass(
             @Nullable PsiMember method,
             @NonNull String className) {
         if (method == null) {
@@ -68,20 +61,8 @@ public abstract class JavaEvaluator {
         return containingClass != null && className.equals(containingClass.getQualifiedName());
     }
 
-    public int getParameterCount(@NonNull PsiMethod method) {
+    public static int getParameterCount(@NonNull PsiMethod method) {
         return method.getParameterList().getParametersCount();
-    }
-
-    /**
-     * Checks whether the class extends a super class or implements a given interface. Like calling
-     * both {@link #extendsClass(PsiClass, String, boolean)} and {@link
-     * #implementsInterface(PsiClass, String, boolean)}.
-     */
-    public boolean inheritsFrom(
-            @NonNull PsiClass cls,
-            @NonNull String className,
-            boolean strict) {
-        return extendsClass(cls, className, strict) || implementsInterface(cls, className, strict);
     }
 
     /**
@@ -97,7 +78,7 @@ public abstract class JavaEvaluator {
      * @param argumentTypes the names of the types of the parameters
      * @return true if this method is defined in the given class and with the given parameters
      */
-    public boolean methodMatches(
+    public static boolean methodMatches(
             @NonNull PsiMethod method,
             @Nullable String className,
             boolean allowInherit,
@@ -118,7 +99,7 @@ public abstract class JavaEvaluator {
      * @param argumentTypes the names of the types of the parameters
      * @return true if this method is defined in the given class and with the given parameters
      */
-    public boolean parametersMatch(
+    public static boolean parametersMatch(
             @NonNull PsiMethod method,
             @NonNull String... argumentTypes) {
         PsiParameterList parameterList = method.getParameterList();
@@ -137,7 +118,7 @@ public abstract class JavaEvaluator {
     }
 
     /** Returns true if the given type matches the given fully qualified type name */
-    public boolean parameterHasType(
+    public static boolean parameterHasType(
             @Nullable PsiMethod method,
             int parameterIndex,
             @NonNull String typeName) {
@@ -150,27 +131,14 @@ public abstract class JavaEvaluator {
     }
 
     /** Returns true if the given type matches the given fully qualified type name */
-    public boolean typeMatches(
+    public static boolean typeMatches(
             @Nullable PsiType type,
             @NonNull String typeName) {
         return type != null && type.getCanonicalText().equals(typeName);
 
     }
 
-    @Nullable
-    public PsiElement resolve(@NonNull PsiElement element) {
-        if (element instanceof PsiReference) {
-            return ((PsiReference)element).resolve();
-        } else if (element instanceof PsiMethodCallExpression) {
-            PsiElement resolved = ((PsiMethodCallExpression) element).resolveMethod();
-            if (resolved != null) {
-                return resolved;
-            }
-        }
-        return null;
-    }
-
-    public boolean isPublic(@Nullable PsiModifierListOwner owner) {
+    public static boolean isPublic(@Nullable PsiModifierListOwner owner) {
         if (owner != null) {
             PsiModifierList modifierList = owner.getModifierList();
             return modifierList != null && modifierList.hasModifierProperty(PsiModifier.PUBLIC);
@@ -178,7 +146,7 @@ public abstract class JavaEvaluator {
         return false;
     }
 
-    public boolean isStatic(@Nullable PsiModifierListOwner owner) {
+    public static boolean isStatic(@Nullable PsiModifierListOwner owner) {
         if (owner != null) {
             PsiModifierList modifierList = owner.getModifierList();
             return modifierList != null && modifierList.hasModifierProperty(PsiModifier.STATIC);
@@ -186,7 +154,7 @@ public abstract class JavaEvaluator {
         return false;
     }
 
-    public boolean isPrivate(@Nullable PsiModifierListOwner owner) {
+    public static boolean isPrivate(@Nullable PsiModifierListOwner owner) {
         if (owner != null) {
             PsiModifierList modifierList = owner.getModifierList();
             return modifierList != null && modifierList.hasModifierProperty(PsiModifier.PRIVATE);
@@ -194,7 +162,7 @@ public abstract class JavaEvaluator {
         return false;
     }
 
-    public boolean isAbstract(@Nullable PsiModifierListOwner owner) {
+    public static boolean isAbstract(@Nullable PsiModifierListOwner owner) {
         if (owner != null) {
             PsiModifierList modifierList = owner.getModifierList();
             return modifierList != null && modifierList.hasModifierProperty(PsiModifier.ABSTRACT);
@@ -202,16 +170,8 @@ public abstract class JavaEvaluator {
         return false;
     }
 
-    public boolean isFinal(@Nullable PsiModifierListOwner owner) {
-        if (owner != null) {
-            PsiModifierList modifierList = owner.getModifierList();
-            return modifierList != null && modifierList.hasModifierProperty(PsiModifier.FINAL);
-        }
-        return false;
-    }
-
     @Nullable
-    public PsiMethod getSuperMethod(@Nullable PsiMethod method) {
+    public static PsiMethod getSuperMethod(@Nullable PsiMethod method) {
         if (method == null) {
             return null;
         }
@@ -242,25 +202,14 @@ public abstract class JavaEvaluator {
     }
 
     @Nullable
-    public abstract PsiClass findClass(@NonNull String qualifiedName);
-
-    @Nullable
-    public abstract PsiClassType getClassType(@Nullable PsiClass psiClass);
+    public PsiClassType getClassType(@Nullable PsiClass psiClass) {
+        if (psiClass == null) {
+            return null;
+        }
+        return PsiTypesUtil.getClassType(psiClass);
+    }
 
     @NonNull
     public abstract PsiAnnotation[] getAllAnnotations(@NonNull PsiModifierListOwner owner,
             boolean inHierarchy);
-
-    @Nullable
-    public abstract PsiAnnotation findAnnotationInHierarchy(
-            @NonNull PsiModifierListOwner listOwner,
-            @NonNull String... annotationNames);
-
-    @Nullable
-    public abstract PsiAnnotation findAnnotation(
-            @Nullable PsiModifierListOwner listOwner,
-            @NonNull String... annotationNames);
-
-    @Nullable
-    public abstract File getFile(@NonNull PsiFile file);
 }

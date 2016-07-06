@@ -9,9 +9,9 @@ public class WrongCastActivity extends Activity {
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.casts);
-        Button button = (Button) findViewById(R.id.button);
+        //Button button = (Button) findViewById(R.id.button);
         ToggleButton toggleButton = (ToggleButton) findViewById(R.id.button);
-        TextView textView = (TextView) findViewById(R.id.edittext);
+        //TextView textView = (TextView) findViewById(R.id.edittext);
     }
 
     public static final class R {

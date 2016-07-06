@@ -21,7 +21,6 @@ import com.android.annotations.Nullable;
 import com.android.tools.lint.client.api.JavaEvaluator;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Detector;
-import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
@@ -31,6 +30,8 @@ import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiMethod;
 import com.intellij.psi.util.PsiTreeUtil;
 
+import org.jetbrains.uast.UClass;
+
 import java.util.Collections;
 import java.util.List;
 
@@ -39,7 +40,7 @@ import java.util.List;
  * in one or more earlier API levels that are still targeted by the minSdkVersion
  * of this project.
  */
-public class OverrideConcreteDetector extends Detector implements JavaPsiScanner {
+public class OverrideConcreteDetector extends Detector implements Detector.UastScanner {
     /** Are previously-abstract methods all overridden? */
     public static final Issue ISSUE = Issue.create(
         "OverrideAbstract", //$NON-NLS-1$
@@ -89,9 +90,8 @@ public class OverrideConcreteDetector extends Detector implements JavaPsiScanner
     }
 
     @Override
-    public void checkClass(@NonNull JavaContext context, @NonNull PsiClass declaration) {
-        JavaEvaluator evaluator = context.getEvaluator();
-        if (evaluator.isAbstract(declaration)) {
+    public void checkClass(@NonNull JavaContext context, @NonNull UClass declaration) {
+        if (JavaEvaluator.isAbstract(declaration)) {
             return;
         }
 
@@ -115,14 +115,14 @@ public class OverrideConcreteDetector extends Detector implements JavaPsiScanner
                 }
                 // Make sure subclass isn't just defining another abstract definition
                 // of the method
-                if (evaluator.isAbstract(method)) {
+                if (JavaEvaluator.isAbstract(method)) {
                     continue;
                 }
                 // Make sure it has the exact right signature
                 if (method.getParameterList().getParametersCount() != 1) {
                     continue; // Wrong signature
                 }
-                if (!evaluator.parameterHasType(method, 0, STATUS_BAR_NOTIFICATION_FQN)) {
+                if (!JavaEvaluator.parameterHasType(method, 0, STATUS_BAR_NOTIFICATION_FQN)) {
                     continue;
                 }
 
@@ -135,7 +135,7 @@ public class OverrideConcreteDetector extends Detector implements JavaPsiScanner
                         "Must override `%1$s.%2$s(%3$s)`: Method was abstract until %4$d, and your `minSdkVersion` is %5$d",
                         NOTIFICATION_LISTENER_SERVICE_FQN, methodName,
                         STATUS_BAR_NOTIFICATION_FQN, CONCRETE_IN, minSdk);
-                context.report(ISSUE, declaration, context.getNameLocation(declaration), message);
+                context.reportUast(ISSUE, declaration, context.getNameLocation(declaration), message);
                 break;
             }
 

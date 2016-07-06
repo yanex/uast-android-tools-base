@@ -17,18 +17,22 @@
 package com.android.tools.lint.checks;
 
 import com.android.annotations.NonNull;
+import com.android.annotations.Nullable;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Detector;
-import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
 import com.android.tools.lint.detector.api.Location;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
-import com.intellij.psi.JavaElementVisitor;
+import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiImportStatement;
+
+import org.jetbrains.uast.UElement;
+import org.jetbrains.uast.UImportStatement;
+import org.jetbrains.uast.visitor.AbstractUastVisitor;
+import org.jetbrains.uast.visitor.UastVisitor;
 
 import java.util.Collections;
 import java.util.List;
@@ -45,7 +49,7 @@ import java.util.List;
  * break. Look out for these erroneous import statements and delete them.
  * </blockquote>
  */
-public class WrongImportDetector extends Detector implements JavaPsiScanner {
+public class WrongImportDetector extends Detector implements Detector.UastScanner {
     /** Is android.R being imported? */
     public static final Issue ISSUE = Issue.create(
             "SuspiciousImport", //$NON-NLS-1$
@@ -70,34 +74,41 @@ public class WrongImportDetector extends Detector implements JavaPsiScanner {
 
     // ---- Implements JavaScanner ----
 
+
+    @Nullable
     @Override
-    public List<Class<? extends PsiElement>> getApplicablePsiTypes() {
-        return Collections.<Class<? extends PsiElement>>singletonList(PsiImportStatement.class);
+    public List<Class<? extends UElement>> getApplicableUastTypes() {
+        return Collections.<Class<? extends UElement>>singletonList(UImportStatement.class);
     }
 
+    @Nullable
     @Override
-    public JavaElementVisitor createPsiVisitor(@NonNull JavaContext context) {
+    public UastVisitor createUastVisitor(@NonNull JavaContext context) {
         return new ImportVisitor(context);
     }
 
-
-    private static class ImportVisitor extends JavaElementVisitor {
+    private static class ImportVisitor extends AbstractUastVisitor {
         private final JavaContext mContext;
 
-        public ImportVisitor(JavaContext context) {
+        private ImportVisitor(JavaContext context) {
             super();
             mContext = context;
         }
 
         @Override
-        public void visitImportStatement(PsiImportStatement statement) {
-            String qualifiedName = statement.getQualifiedName();
-            if ("android.R".equals(qualifiedName)) {
-                Location location = mContext.getLocation(statement);
-                mContext.report(ISSUE, statement, location,
-                        "Don't include `android.R` here; use a fully qualified name for "
-                                + "each usage instead");
+        public boolean visitImportStatement(UImportStatement statement) {
+            PsiElement resolved = statement.resolve();
+            if (resolved instanceof PsiClass) {
+                String qualifiedName = ((PsiClass) resolved).getQualifiedName();
+                if ("android.R".equals(qualifiedName)) {
+                    Location location = mContext.getLocation(statement);
+                    mContext.report(ISSUE, statement, location,
+                            "Don't include `android.R` here; use a fully qualified name for "
+                                    + "each usage instead");
+                }
             }
+            
+            return super.visitImportStatement(statement);
         }
     }
 }

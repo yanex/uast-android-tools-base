@@ -23,9 +23,10 @@ import static com.android.SdkConstants.VALUE_IF_ROOM;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.resources.ResourceFolderType;
+import com.android.tools.lint.client.api.JavaEvaluator;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Context;
-import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
+import com.android.tools.lint.detector.api.Detector;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
@@ -34,11 +35,11 @@ import com.android.tools.lint.detector.api.ResourceXmlDetector;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
 import com.android.tools.lint.detector.api.XmlContext;
-import com.intellij.psi.JavaElementVisitor;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiField;
-import com.intellij.psi.PsiJavaCodeReferenceElement;
 
+import org.jetbrains.uast.expressions.UReferenceExpression;
+import org.jetbrains.uast.visitor.UastVisitor;
 import org.w3c.dom.Attr;
 
 import java.util.ArrayList;
@@ -53,7 +54,7 @@ import java.util.List;
  * (Use ifRoom instead).
  */
 public class AlwaysShowActionDetector extends ResourceXmlDetector implements
-        JavaPsiScanner {
+        Detector.UastScanner {
 
     /** The main issue discovered by this detector */
     @SuppressWarnings("unchecked")
@@ -190,7 +191,7 @@ public class AlwaysShowActionDetector extends ResourceXmlDetector implements
         mFileAttributes.add(attribute);
     }
 
-    // ---- Implements JavaScanner ----
+    // ---- Implements UastScanner ----
 
     @Nullable
     @Override
@@ -199,12 +200,12 @@ public class AlwaysShowActionDetector extends ResourceXmlDetector implements
     }
 
     @Override
-    public void visitReference(@NonNull JavaContext context, @Nullable JavaElementVisitor visitor,
-            @NonNull PsiJavaCodeReferenceElement reference, @NonNull PsiElement resolved) {
+    public void visitReference(@NonNull JavaContext context, @Nullable UastVisitor visitor,
+            @NonNull UReferenceExpression reference, @NonNull PsiElement resolved) {
         if (resolved instanceof PsiField
-                && context.getEvaluator().isMemberInClass((PsiField) resolved,
+                && JavaEvaluator.isMemberInClass((PsiField) resolved,
                 "android.view.MenuItem")) {
-            if ("SHOW_AS_ACTION_ALWAYS".equals(reference.getReferenceName())) {
+            if ("SHOW_AS_ACTION_ALWAYS".equals(((PsiField) resolved).getName())) {
                 if (context.getDriver().isSuppressed(context, ISSUE, reference)) {
                     return;
                 }

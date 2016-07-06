@@ -29,10 +29,10 @@ public class UnsafeNativeCodeDetectorTest extends AbstractCheckTest {
         assertEquals(
                 "src/test/pkg/Load.java:12: Warning: Dynamically loading code using load is risky, please use loadLibrary instead when possible [UnsafeDynamicallyLoadedCode]\n" +
                 "            Runtime.getRuntime().load(\"/data/data/test.pkg/files/libhello.so\");\n" +
-                "            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n" +
+                "                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n" +
                 "src/test/pkg/Load.java:14: Warning: Dynamically loading code using load is risky, please use loadLibrary instead when possible [UnsafeDynamicallyLoadedCode]\n" +
                 "            System.load(\"/data/data/test.pkg/files/libhello.so\");\n" +
-                "            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n" +
+                "                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n" +
                 "0 errors, 2 warnings\n",
                 lintProject(java("src/test/pkg/Load.java", ""
                         + "package test.pkg;\n"

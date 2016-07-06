@@ -47,7 +47,6 @@ import com.android.tools.lint.client.api.XmlParser;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Context;
 import com.android.tools.lint.detector.api.Detector;
-import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
 import com.android.tools.lint.detector.api.Detector.XmlScanner;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
@@ -59,14 +58,16 @@ import com.android.tools.lint.detector.api.Severity;
 import com.android.tools.lint.detector.api.XmlContext;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import com.intellij.psi.JavaRecursiveElementVisitor;
-import com.intellij.psi.PsiAnonymousClass;
-import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiExpression;
 import com.intellij.psi.PsiField;
-import com.intellij.psi.PsiMethodCallExpression;
 
+import org.jetbrains.uast.UCallExpression;
+import org.jetbrains.uast.UClass;
+import org.jetbrains.uast.UElement;
+import org.jetbrains.uast.UExpression;
+import org.jetbrains.uast.UastUtils;
+import org.jetbrains.uast.util.UastExpressionUtils;
+import org.jetbrains.uast.visitor.AbstractUastVisitor;
 import org.w3c.dom.Attr;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
@@ -84,7 +85,7 @@ import java.util.Set;
 /**
  * Check if the usage of App Indexing is correct.
  */
-public class AppIndexingApiDetector extends Detector implements XmlScanner, JavaPsiScanner {
+public class AppIndexingApiDetector extends Detector implements XmlScanner, Detector.UastScanner {
 
     private static final Implementation URL_IMPLEMENTATION = new Implementation(
             AppIndexingApiDetector.class, Scope.MANIFEST_SCOPE);
@@ -227,30 +228,30 @@ public class AppIndexingApiDetector extends Detector implements XmlScanner, Java
     }
 
     @Override
-    public void checkClass(@NonNull JavaContext context, @NonNull PsiClass declaration) {
+    public void checkClass(@NonNull JavaContext context, @NonNull UClass declaration) {
         if (declaration.getName() == null) {
             return;
         }
 
         // In case linting the base class itself.
-        if (!context.getEvaluator().extendsClass(declaration, CLASS_ACTIVITY, true)) {
+        if (!JavaEvaluator.isSubClassOf(declaration, CLASS_ACTIVITY, true)) {
             return;
         }
 
         declaration.accept(new MethodVisitor(context, declaration));
     }
 
-    static class MethodVisitor extends JavaRecursiveElementVisitor {
+    static class MethodVisitor extends AbstractUastVisitor {
         private final JavaContext mContext;
-        private final PsiClass mCls;
+        private final UClass mCls;
 
-        private final List<PsiMethodCallExpression> mStartMethods;
-        private final List<PsiMethodCallExpression> mEndMethods;
-        private final List<PsiMethodCallExpression> mConnectMethods;
-        private final List<PsiMethodCallExpression> mDisconnectMethods;
+        private final List<UCallExpression> mStartMethods;
+        private final List<UCallExpression> mEndMethods;
+        private final List<UCallExpression> mConnectMethods;
+        private final List<UCallExpression> mDisconnectMethods;
         private boolean mHasAddAppIndexApi;
 
-        MethodVisitor(JavaContext context, PsiClass cls) {
+        private MethodVisitor(JavaContext context, UClass cls) {
             mCls = cls;
             mContext = context;
             mStartMethods = Lists.newArrayListWithExpectedSize(2);
@@ -260,64 +261,79 @@ public class AppIndexingApiDetector extends Detector implements XmlScanner, Java
         }
 
         @Override
-        public void visitClass(PsiClass aClass) {
-            if (aClass == mCls) {
-                super.visitClass(aClass);
-                report();
-            } // else: don't go into inner classes
+        public boolean visitClass(UClass aClass) {
+            if (aClass.getPsi().equals(mCls.getPsi())) {
+                return super.visitClass(aClass);
+            } else {
+                // Don't go into inner classes
+                return true;
+            }
         }
 
         @Override
-        public void visitMethodCallExpression(PsiMethodCallExpression node) {
-            super.visitMethodCallExpression(node);
+        public void afterVisitClass(UClass node) {
+            report();
+        }
 
-            String methodName = node.getMethodExpression().getReferenceName();
+        @Override
+        public boolean visitCallExpression(UCallExpression node) {
+            if (UastExpressionUtils.isMethodCall(node)) {
+                visitMethodCallExpression(node);
+            }
+            return super.visitCallExpression(node);
+        }
+
+        private void visitMethodCallExpression(UCallExpression node) {
+            String methodName = node.getMethodName();
             if (methodName == null) {
                 return;
             }
 
-            JavaEvaluator evaluator = mContext.getEvaluator();
-            if (methodName.equals(APP_INDEX_START)) {
-                if (evaluator.isMemberInClass(node.resolveMethod(), APP_INDEXING_API_CLASS)) {
-                    mStartMethods.add(node);
-                }
-            } else if (methodName.equals(APP_INDEX_END)) {
-                if (evaluator.isMemberInClass(node.resolveMethod(), APP_INDEXING_API_CLASS)) {
-                    mEndMethods.add(node);
-                }
-            } else if (methodName.equals(APP_INDEX_VIEW)) {
-                if (evaluator.isMemberInClass(node.resolveMethod(), APP_INDEXING_API_CLASS)) {
-                    mStartMethods.add(node);
-                }
-            } else if (methodName.equals(APP_INDEX_VIEW_END)) {
-                if (evaluator.isMemberInClass(node.resolveMethod(), APP_INDEXING_API_CLASS)) {
-                    mEndMethods.add(node);
-                }
-            } else if (methodName.equals(CLIENT_CONNECT)) {
-                if (evaluator.isMemberInClass(node.resolveMethod(), GOOGLE_API_CLIENT_CLASS)) {
-                    mConnectMethods.add(node);
-                }
-            } else if (methodName.equals(CLIENT_DISCONNECT)) {
-                if (evaluator.isMemberInClass(node.resolveMethod(), GOOGLE_API_CLIENT_CLASS)) {
-                    mDisconnectMethods.add(node);
-                }
-            } else if (methodName.equals(ADD_API)) {
-                if (evaluator.isMemberInClass(node.resolveMethod(), GOOGLE_API_CLIENT_BUILDER_CLASS)) {
-                    PsiExpression[] args = node.getArgumentList().getExpressions();
-                    if (args.length > 0) {
-                        PsiElement resolved = evaluator.resolve(args[0]);
-                        if (resolved instanceof PsiField &&
-                                evaluator.isMemberInClass((PsiField) resolved, API_CLASS)) {
-                            mHasAddAppIndexApi = true;
+            switch (methodName) {
+                case APP_INDEX_START:
+                    if (JavaEvaluator.isMemberInClass(node.resolve(), APP_INDEXING_API_CLASS)) {
+                        mStartMethods.add(node);
+                    }
+                    break;
+                case APP_INDEX_END:
+                    if (JavaEvaluator.isMemberInClass(node.resolve(), APP_INDEXING_API_CLASS)) {
+                        mEndMethods.add(node);
+                    }
+                    break;
+                case APP_INDEX_VIEW:
+                    if (JavaEvaluator.isMemberInClass(node.resolve(), APP_INDEXING_API_CLASS)) {
+                        mStartMethods.add(node);
+                    }
+                    break;
+                case APP_INDEX_VIEW_END:
+                    if (JavaEvaluator.isMemberInClass(node.resolve(), APP_INDEXING_API_CLASS)) {
+                        mEndMethods.add(node);
+                    }
+                    break;
+                case CLIENT_CONNECT:
+                    if (JavaEvaluator.isMemberInClass(node.resolve(), GOOGLE_API_CLIENT_CLASS)) {
+                        mConnectMethods.add(node);
+                    }
+                    break;
+                case CLIENT_DISCONNECT:
+                    if (JavaEvaluator.isMemberInClass(node.resolve(), GOOGLE_API_CLIENT_CLASS)) {
+                        mDisconnectMethods.add(node);
+                    }
+                    break;
+                case ADD_API:
+                    if (JavaEvaluator
+                            .isMemberInClass(node.resolve(), GOOGLE_API_CLIENT_BUILDER_CLASS)) {
+                        List<UExpression> args = node.getValueArguments();
+                        if (!args.isEmpty()) {
+                            PsiElement resolved = UastUtils.tryResolve(args.get(0));
+                            if (resolved instanceof PsiField &&
+                                    JavaEvaluator.isMemberInClass((PsiField) resolved, API_CLASS)) {
+                                mHasAddAppIndexApi = true;
+                            }
                         }
                     }
-                }
+                    break;
             }
-        }
-
-        @Override
-        public void visitAnonymousClass(PsiAnonymousClass aClass) {
-            // Don't jump into inner classes
         }
 
         private void report() {
@@ -327,14 +343,14 @@ public class AppIndexingApiDetector extends Detector implements XmlScanner, Java
             // app indexing API used but no support in manifest
             boolean hasIntent = activitiesToCheck.contains(mCls.getQualifiedName());
             if (!hasIntent) {
-                for (PsiMethodCallExpression call : mStartMethods) {
+                for (UCallExpression call : mStartMethods) {
                     mContext.report(ISSUE_APP_INDEXING_API, call,
-                            mContext.getNameLocation(call),
+                            mContext.getUastNameLocation(call),
                             "Missing support for Google App Indexing in the manifest");
                 }
-                for (PsiMethodCallExpression call : mEndMethods) {
+                for (UCallExpression call : mEndMethods) {
                     mContext.report(ISSUE_APP_INDEXING_API, call,
-                            mContext.getNameLocation(call),
+                            mContext.getUastNameLocation(call),
                             "Missing support for Google App Indexing in the manifest");
                 }
                 return;
@@ -342,24 +358,24 @@ public class AppIndexingApiDetector extends Detector implements XmlScanner, Java
 
             // `AppIndex.AppIndexApi.start / end / view / viewEnd` should exist
             if (mStartMethods.isEmpty() && mEndMethods.isEmpty()) {
-                mContext.report(ISSUE_APP_INDEXING_API, mCls,
+                mContext.reportUast(ISSUE_APP_INDEXING_API, mCls,
                         mContext.getNameLocation(mCls),
                         "Missing support for Google App Indexing API");
                 return;
             }
 
-            for (PsiMethodCallExpression startNode : mStartMethods) {
-                PsiExpression[] expressions = startNode.getArgumentList().getExpressions();
-                if (expressions.length == 0) {
+            for (UCallExpression startNode : mStartMethods) {
+                List<UExpression> expressions = startNode.getValueArguments();
+                if (expressions.isEmpty()) {
                     continue;
                 }
-                PsiExpression startClient = expressions[0];
+                UExpression startClient = expressions.get(0);
 
                 // GoogleApiClient should `addApi(AppIndex.APP_INDEX_API)`
                 if (!mHasAddAppIndexApi) {
                     String message = String.format(
                             "GoogleApiClient `%1$s` has not added support for App Indexing API",
-                            startClient.getText());
+                            startClient.asSourceString());
                     mContext.report(ISSUE_APP_INDEXING_API, startClient,
                             mContext.getLocation(startClient), message);
                 }
@@ -367,7 +383,7 @@ public class AppIndexingApiDetector extends Detector implements XmlScanner, Java
                 // GoogleApiClient `connect` should exist
                 if (!hasOperand(startClient, mConnectMethods)) {
                     String message = String.format("GoogleApiClient `%1$s` is not connected",
-                                    startClient.getText());
+                                    startClient.asSourceString());
                     mContext.report(ISSUE_APP_INDEXING_API, startClient,
                             mContext.getLocation(startClient), message);
                 }
@@ -375,23 +391,23 @@ public class AppIndexingApiDetector extends Detector implements XmlScanner, Java
                 // `AppIndex.AppIndexApi.end` should pair with `AppIndex.AppIndexApi.start`
                 if (!hasFirstArgument(startClient, mEndMethods)) {
                     mContext.report(ISSUE_APP_INDEXING_API, startNode,
-                            mContext.getNameLocation(startNode),
+                            mContext.getUastNameLocation(startNode),
                             "Missing corresponding `AppIndex.AppIndexApi.end` method");
                 }
             }
 
-            for (PsiMethodCallExpression endNode : mEndMethods) {
-                PsiExpression[] expressions = endNode.getArgumentList().getExpressions();
-                if (expressions.length == 0) {
+            for (UCallExpression endNode : mEndMethods) {
+                List<UExpression> expressions = endNode.getValueArguments();
+                if (expressions.isEmpty()) {
                     continue;
                 }
-                PsiExpression endClient = expressions[0];
+                UExpression endClient = expressions.get(0);
 
                 // GoogleApiClient should `addApi(AppIndex.APP_INDEX_API)`
                 if (!mHasAddAppIndexApi) {
                     String message = String.format(
                             "GoogleApiClient `%1$s` has not added support for App Indexing API",
-                            endClient.getText());
+                            endClient.asSourceString());
                     mContext.report(ISSUE_APP_INDEXING_API, endClient,
                             mContext.getLocation(endClient), message);
                 }
@@ -399,7 +415,7 @@ public class AppIndexingApiDetector extends Detector implements XmlScanner, Java
                 // GoogleApiClient `disconnect` should exist
                 if (!hasOperand(endClient, mDisconnectMethods)) {
                     String message = String.format("GoogleApiClient `%1$s`"
-                            + " is not disconnected", endClient.getText());
+                            + " is not disconnected", endClient.asSourceString());
                     mContext.report(ISSUE_APP_INDEXING_API, endClient,
                             mContext.getLocation(endClient), message);
                 }
@@ -407,7 +423,7 @@ public class AppIndexingApiDetector extends Detector implements XmlScanner, Java
                 // `AppIndex.AppIndexApi.start` should pair with `AppIndex.AppIndexApi.end`
                 if (!hasFirstArgument(endClient, mStartMethods)) {
                     mContext.report(ISSUE_APP_INDEXING_API, endNode,
-                            mContext.getNameLocation(endNode),
+                            mContext.getUastNameLocation(endNode),
                             "Missing corresponding `AppIndex.AppIndexApi.start` method");
                 }
             }
@@ -630,6 +646,7 @@ public class AppIndexingApiDetector extends Detector implements XmlScanner, Java
             Attr attr = data.getAttributeNodeNS(ANDROID_URI, ATTRIBUTE_PORT);
             try {
                 String port = replaceUrlWithValue(context, attr.getValue());
+                //noinspection ResultOfMethodCallIgnored
                 Integer.parseInt(port);
             } catch (NumberFormatException e) {
                 context.report(ISSUE_URL_ERROR, attr, context.getLocation(attr),
@@ -684,12 +701,12 @@ public class AppIndexingApiDetector extends Detector implements XmlScanner, Java
      * @param list     The methods list.
      * @return If such a method exists in the list.
      */
-    private static boolean hasFirstArgument(PsiExpression argument, List<PsiMethodCallExpression> list) {
-        for (PsiMethodCallExpression call : list) {
-            PsiExpression[] expressions = call.getArgumentList().getExpressions();
-            if (expressions.length > 0) {
-                PsiExpression argument2 = expressions[0];
-                if (argument.getText().equals(argument2.getText())) {
+    private static boolean hasFirstArgument(UExpression argument, List<UCallExpression> list) {
+        for (UCallExpression call : list) {
+            List<UExpression> expressions = call.getValueArguments();
+            if (!expressions.isEmpty()) {
+                UExpression argument2 = expressions.get(0);
+                if (argument.asSourceString().equals(argument2.asSourceString())) {
                     return true;
                 }
             }
@@ -704,10 +721,10 @@ public class AppIndexingApiDetector extends Detector implements XmlScanner, Java
      * @param list    The methods list.
      * @return If such a method exists in the list.
      */
-    private static boolean hasOperand(PsiExpression operand, List<PsiMethodCallExpression> list) {
-        for (PsiMethodCallExpression method : list) {
-            PsiElement operand2 = method.getMethodExpression().getQualifier();
-            if (operand2 != null && operand.getText().equals(operand2.getText())) {
+    private static boolean hasOperand(UExpression operand, List<UCallExpression> list) {
+        for (UCallExpression method : list) {
+            UElement operand2 = method.getReceiver();
+            if (operand2 != null && operand.asSourceString().equals(operand2.asSourceString())) {
                 return true;
             }
         }

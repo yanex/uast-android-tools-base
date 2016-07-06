@@ -27,7 +27,6 @@ import com.android.annotations.Nullable;
 import com.android.tools.lint.client.api.JavaEvaluator;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Detector;
-import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
 import com.android.tools.lint.detector.api.Detector.XmlScanner;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
@@ -39,6 +38,7 @@ import com.android.tools.lint.detector.api.XmlContext;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiMethod;
 
+import org.jetbrains.uast.UClass;
 import org.w3c.dom.Element;
 
 import java.util.Collection;
@@ -52,7 +52,7 @@ import java.util.Map;
  * Ensures that PreferenceActivity and its subclasses are never exported.
  */
 public class PreferenceActivityDetector extends Detector
-        implements XmlScanner, JavaPsiScanner {
+        implements XmlScanner, Detector.UastScanner {
     public static final Issue ISSUE = Issue.create(
             "ExportedPreferenceActivity", //$NON-NLS-1$
             "PreferenceActivity should not be exported",
@@ -116,7 +116,7 @@ public class PreferenceActivityDetector extends Detector
         return activityClassName;
     }
 
-    // ---- Implements JavaScanner ----
+    // ---- Implements UastScanner ----
 
     @Nullable
     @Override
@@ -125,19 +125,18 @@ public class PreferenceActivityDetector extends Detector
     }
 
     @Override
-    public void checkClass(@NonNull JavaContext context, @NonNull PsiClass declaration) {
+    public void checkClass(@NonNull JavaContext context, @NonNull UClass declaration) {
         if (!context.getProject().getReportIssues()) {
             return;
         }
-        JavaEvaluator evaluator = context.getEvaluator();
         String className = declaration.getQualifiedName();
-        if (evaluator.extendsClass(declaration, PREFERENCE_ACTIVITY, false)
+        if (JavaEvaluator.isSubClassOf(declaration, PREFERENCE_ACTIVITY, false)
                 && mExportedActivities.containsKey(className)) {
             // Ignore the issue if we target an API greater than 19 and the class in
             // question specifically overrides isValidFragment() and thus knowingly white-lists
             // valid fragments.
             if (context.getMainProject().getTargetSdk() >= 19
-                    && overridesIsValidFragment(evaluator, declaration)) {
+                    && overridesIsValidFragment(declaration)) {
                 return;
             }
 
@@ -145,15 +144,13 @@ public class PreferenceActivityDetector extends Detector
                     "`PreferenceActivity` subclass `%1$s` should not be exported",
                     className);
             Location location = mExportedActivities.get(className).resolve();
-            context.report(ISSUE, declaration, location, message);
+            context.reportUast(ISSUE, declaration, location, message);
         }
     }
 
-    private static boolean overridesIsValidFragment(
-            @NonNull JavaEvaluator evaluator,
-            @NonNull PsiClass resolvedClass) {
+    private static boolean overridesIsValidFragment(@NonNull PsiClass resolvedClass) {
         for (PsiMethod method : resolvedClass.findMethodsByName(IS_VALID_FRAGMENT, false)) {
-            if (evaluator.parametersMatch(method, TYPE_STRING)) {
+            if (JavaEvaluator.parametersMatch(method, TYPE_STRING)) {
                 return true;
             }
         }

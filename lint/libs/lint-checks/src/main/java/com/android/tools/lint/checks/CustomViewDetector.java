@@ -25,6 +25,7 @@ import static com.android.tools.lint.detector.api.LintUtils.skipParentheses;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
+import com.android.tools.lint.client.api.JavaEvaluator;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Detector;
 import com.android.tools.lint.detector.api.Implementation;
@@ -32,13 +33,15 @@ import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
-import com.intellij.psi.JavaElementVisitor;
 import com.intellij.psi.PsiClass;
-import com.intellij.psi.PsiExpression;
-import com.intellij.psi.PsiExpressionStatement;
-import com.intellij.psi.PsiMethod;
-import com.intellij.psi.PsiMethodCallExpression;
 import com.intellij.psi.util.PsiTreeUtil;
+
+import org.jetbrains.uast.UCallExpression;
+import org.jetbrains.uast.UClass;
+import org.jetbrains.uast.UExpression;
+import org.jetbrains.uast.UMethod;
+import org.jetbrains.uast.UastUtils;
+import org.jetbrains.uast.visitor.UastVisitor;
 
 import java.util.Collections;
 import java.util.List;
@@ -47,7 +50,7 @@ import java.util.List;
  * Makes sure that custom views use a declare styleable that matches
  * the name of the custom view
  */
-public class CustomViewDetector extends Detector implements Detector.JavaPsiScanner {
+public class CustomViewDetector extends Detector implements Detector.UastScanner {
 
     private static final Implementation IMPLEMENTATION = new Implementation(
             CustomViewDetector.class,
@@ -76,7 +79,7 @@ public class CustomViewDetector extends Detector implements Detector.JavaPsiScan
     public CustomViewDetector() {
     }
 
-    // ---- Implements JavaScanner ----
+    // ---- Implements UastScanner ----
 
     @Override
     public List<String> getApplicableMethodNames() {
@@ -84,14 +87,14 @@ public class CustomViewDetector extends Detector implements Detector.JavaPsiScan
     }
 
     @Override
-    public void visitMethod(@NonNull JavaContext context, @Nullable JavaElementVisitor visitor,
-            @NonNull PsiMethodCallExpression node, @NonNull PsiMethod method) {
-        if (skipParentheses(node.getParent()) instanceof PsiExpressionStatement) {
-            if (!context.getEvaluator().isMemberInSubClassOf(method, CLASS_CONTEXT, false)) {
+    public void visitMethod(@NonNull JavaContext context, @Nullable UastVisitor visitor,
+            @NonNull UCallExpression node, @NonNull UMethod method) {
+        if (skipParentheses(node.getContainingElement()) instanceof UExpression) {
+            if (!JavaEvaluator.isMemberInSubClassOf(method, CLASS_CONTEXT, false)) {
                 return;
             }
-            PsiExpression[] arguments = node.getArgumentList().getExpressions();
-            int size = arguments.length;
+            List<UExpression> arguments = node.getValueArguments();
+            int size = arguments.size();
             // Which parameter contains the styleable (attrs) ?
             int parameterIndex;
             if (size == 1) {
@@ -103,19 +106,24 @@ public class CustomViewDetector extends Detector implements Detector.JavaPsiScan
                 // obtainStyledAttributes(AttributeSet set, int[] attrs, int defStyleAttr, int defStyleRes)
                 parameterIndex = 1;
             }
-            PsiExpression expression = arguments[parameterIndex];
-            String s = expression.getText();
-            if (!s.startsWith(R_STYLEABLE_PREFIX)) {
+            UExpression expression = arguments.get(parameterIndex);
+            if (!UastUtils.startsWithQualified(expression, R_STYLEABLE_PREFIX)) {
                 return;
             }
-            String styleableName = s.substring(R_STYLEABLE_PREFIX.length());
-            PsiClass cls = PsiTreeUtil.getParentOfType(node, PsiClass.class, false);
+
+            List<String> path = UastUtils.asQualifiedPath(expression);
+            if (path == null || path.size() < 3) {
+                return;
+            }
+
+            String styleableName = path.get(2);
+            UClass cls = UastUtils.getParentOfType(node, UClass.class, false);
             if (cls == null) {
                 return;
             }
 
             String className = cls.getName();
-            if (context.getEvaluator().extendsClass(cls, CLASS_VIEW, false)) {
+            if (JavaEvaluator.isSubClassOf(cls, CLASS_VIEW, false)) {
                 if (!styleableName.equals(className)) {
                     String message = String.format(
                             "By convention, the custom view (`%1$s`) and the declare-styleable (`%2$s`) "
@@ -124,7 +132,7 @@ public class CustomViewDetector extends Detector implements Detector.JavaPsiScan
                             className, styleableName);
                     context.report(ISSUE, node, context.getLocation(expression), message);
                 }
-            } else if (context.getEvaluator().extendsClass(cls,
+            } else if (JavaEvaluator.isSubClassOf(cls,
                     CLASS_VIEWGROUP + DOT_LAYOUT_PARAMS, false)) {
                 PsiClass outer = PsiTreeUtil.getParentOfType(cls, PsiClass.class, true);
                 if (outer == null) {

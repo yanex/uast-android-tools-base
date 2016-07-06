@@ -36,13 +36,13 @@ public class SetTextDetectorTest extends AbstractCheckTest {
             "                 ~~~~~~~~~~~~~~~~~~~~~~~~~~\n" +
             "src/test/pkg/CustomScreen.java:17: Warning: Number formatting does not take into account locale settings. Consider using String.format instead. [SetTextI18n]\n" +
             "    view.setText(Integer.toString(50) + \"%\");\n" +
-            "                 ~~~~~~~~~~~~~~~~~~~~\n" +
+            "                         ~~~~~~~~~~~~\n" +
             "src/test/pkg/CustomScreen.java:18: Warning: Do not concatenate text displayed with setText. Use resource string with placeholders. [SetTextI18n]\n" +
             "    view.setText(Double.toString(12.5) + \" miles\");\n" +
             "                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n" +
             "src/test/pkg/CustomScreen.java:18: Warning: Number formatting does not take into account locale settings. Consider using String.format instead. [SetTextI18n]\n" +
             "    view.setText(Double.toString(12.5) + \" miles\");\n" +
-            "                 ~~~~~~~~~~~~~~~~~~~~~\n" +
+            "                        ~~~~~~~~~~~~~~\n" +
             "src/test/pkg/CustomScreen.java:18: Warning: String literal in setText can not be translated. Use Android resources instead. [SetTextI18n]\n" +
             "    view.setText(Double.toString(12.5) + \" miles\");\n" +
             "                                         ~~~~~~~~\n" +

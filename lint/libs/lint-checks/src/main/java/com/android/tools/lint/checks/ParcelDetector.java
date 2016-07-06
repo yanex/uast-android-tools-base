@@ -19,19 +19,20 @@ import static com.android.SdkConstants.CLASS_PARCELABLE;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
+import com.android.tools.lint.client.api.JavaEvaluator;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Detector;
-import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
 import com.android.tools.lint.detector.api.Location;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
-import com.intellij.psi.PsiAnonymousClass;
-import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiField;
 import com.intellij.psi.PsiModifier;
+
+import org.jetbrains.uast.UAnonymousClass;
+import org.jetbrains.uast.UClass;
 
 import java.util.Collections;
 import java.util.List;
@@ -39,7 +40,7 @@ import java.util.List;
 /**
  * Looks for Parcelable classes that are missing a CREATOR field
  */
-public class ParcelDetector extends Detector implements JavaPsiScanner {
+public class ParcelDetector extends Detector implements Detector.UastScanner {
 
     /** The main issue discovered by this detector */
     public static final Issue ISSUE = Issue.create(
@@ -72,8 +73,8 @@ public class ParcelDetector extends Detector implements JavaPsiScanner {
     }
 
     @Override
-    public void checkClass(@NonNull JavaContext context, @NonNull PsiClass declaration) {
-        if (declaration instanceof PsiAnonymousClass) {
+    public void checkClass(@NonNull JavaContext context, @NonNull UClass declaration) {
+        if (declaration instanceof UAnonymousClass) {
             // Anonymous classes aren't parcelable
             return;
         }
@@ -87,7 +88,7 @@ public class ParcelDetector extends Detector implements JavaPsiScanner {
         }
 
         // Parceling spans is handled in TextUtils#CHAR_SEQUENCE_CREATOR
-        if (context.getEvaluator().implementsInterface(declaration,
+        if (JavaEvaluator.isSubClassOf(declaration,
                 "android.text.ParcelableSpan", false)) {
             return;
         }
@@ -95,7 +96,7 @@ public class ParcelDetector extends Detector implements JavaPsiScanner {
         PsiField field = declaration.findFieldByName("CREATOR", true);
         if (field == null) {
             Location location = context.getNameLocation(declaration);
-            context.report(ISSUE, declaration, location,
+            context.reportUast(ISSUE, declaration, location,
                     "This class implements `Parcelable` but does not "
                             + "provide a `CREATOR` field");
         }

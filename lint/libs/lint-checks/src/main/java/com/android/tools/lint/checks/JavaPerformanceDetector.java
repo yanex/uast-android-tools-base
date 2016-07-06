@@ -41,26 +41,29 @@ import com.android.tools.lint.detector.api.Severity;
 import com.android.tools.lint.detector.api.TextFormat;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Sets.SetView;
-import com.intellij.psi.JavaElementVisitor;
-import com.intellij.psi.JavaRecursiveElementVisitor;
-import com.intellij.psi.PsiAssignmentExpression;
-import com.intellij.psi.PsiBinaryExpression;
 import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiExpression;
-import com.intellij.psi.PsiIdentifier;
-import com.intellij.psi.PsiIfStatement;
-import com.intellij.psi.PsiJavaCodeReferenceElement;
+import com.intellij.psi.PsiField;
 import com.intellij.psi.PsiMethod;
-import com.intellij.psi.PsiMethodCallExpression;
-import com.intellij.psi.PsiNewExpression;
-import com.intellij.psi.PsiParenthesizedExpression;
-import com.intellij.psi.PsiPrefixExpression;
-import com.intellij.psi.PsiReferenceExpression;
-import com.intellij.psi.PsiSuperExpression;
-import com.intellij.psi.PsiThisExpression;
-import com.intellij.psi.PsiThrowStatement;
 import com.intellij.psi.PsiType;
-import com.intellij.psi.util.PsiTreeUtil;
+
+import org.jetbrains.uast.UBinaryExpression;
+import org.jetbrains.uast.UCallExpression;
+import org.jetbrains.uast.UElement;
+import org.jetbrains.uast.UExpression;
+import org.jetbrains.uast.UIfExpression;
+import org.jetbrains.uast.UMethod;
+import org.jetbrains.uast.UParenthesizedExpression;
+import org.jetbrains.uast.UPrefixExpression;
+import org.jetbrains.uast.UQualifiedReferenceExpression;
+import org.jetbrains.uast.USimpleNameReferenceExpression;
+import org.jetbrains.uast.USuperExpression;
+import org.jetbrains.uast.UThisExpression;
+import org.jetbrains.uast.UThrowExpression;
+import org.jetbrains.uast.UastUtils;
+import org.jetbrains.uast.expressions.UReferenceExpression;
+import org.jetbrains.uast.util.UastExpressionUtils;
+import org.jetbrains.uast.visitor.AbstractUastVisitor;
+import org.jetbrains.uast.visitor.UastVisitor;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -71,7 +74,7 @@ import java.util.List;
  * Looks for performance issues in Java files, such as memory allocations during
  * drawing operations and using HashMap instead of SparseArray.
  */
-public class JavaPerformanceDetector extends Detector implements Detector.JavaPsiScanner {
+public class JavaPerformanceDetector extends Detector implements Detector.UastScanner {
 
     private static final Implementation IMPLEMENTATION = new Implementation(
             JavaPerformanceDetector.class,
@@ -146,23 +149,25 @@ public class JavaPerformanceDetector extends Detector implements Detector.JavaPs
     public JavaPerformanceDetector() {
     }
 
-    // ---- Implements JavaScanner ----
+    // ---- Implements UastScanner ----
 
+
+    @Nullable
     @Override
-    public List<Class<? extends PsiElement>> getApplicablePsiTypes() {
-        List<Class<? extends PsiElement>> types = new ArrayList<Class<? extends PsiElement>>(3);
-        types.add(PsiNewExpression.class);
-        types.add(PsiMethod.class);
-        types.add(PsiMethodCallExpression.class);
+    public List<Class<? extends UElement>> getApplicableUastTypes() {
+        List<Class<? extends UElement>> types = new ArrayList<Class<? extends UElement>>(3);
+        types.add(UCallExpression.class);
+        types.add(UMethod.class);
         return types;
     }
 
+    @Nullable
     @Override
-    public JavaElementVisitor createPsiVisitor(@NonNull JavaContext context) {
+    public UastVisitor createUastVisitor(@NonNull JavaContext context) {
         return new PerformanceVisitor(context);
     }
 
-    private static class PerformanceVisitor extends JavaElementVisitor {
+    private static class PerformanceVisitor extends AbstractUastVisitor {
         private final JavaContext mContext;
         private final boolean mCheckMaps;
         private final boolean mCheckAllocations;
@@ -179,17 +184,27 @@ public class JavaPerformanceDetector extends Detector implements Detector.JavaPs
         }
 
         @Override
-        public void visitMethod(PsiMethod node) {
+        public boolean visitMethod(UMethod node) {
             mFlagAllocations = isBlockedAllocationMethod(node);
+            return super.visitMethod(node);
         }
 
         @Override
-        public void visitNewExpression(PsiNewExpression node) {
+        public boolean visitCallExpression(UCallExpression node) {
+            if (UastExpressionUtils.isConstructorCall(node)) {
+                visitConstructorCallExpression(node);
+            } else if (UastExpressionUtils.isMethodCall(node)) {
+                visitMethodCallExpression(node);
+            }
+            return super.visitCallExpression(node);
+        }
+
+        private void visitConstructorCallExpression(UCallExpression node) {
             String typeName = null;
-            PsiJavaCodeReferenceElement classReference = node.getClassReference();
+            UReferenceExpression classReference = node.getClassReference();
             if (mCheckMaps || mCheckValueOf) {
                 if (classReference != null) {
-                    typeName = classReference.getQualifiedName();
+                    typeName = UastUtils.getQualifiedName(classReference);
                 }
             }
 
@@ -198,9 +213,9 @@ public class JavaPerformanceDetector extends Detector implements Detector.JavaPs
                 // e.g. via Guava? This is a bit trickier since we need to infer the type
                 // arguments from the calling context.
                 if (HASH_MAP.equals(typeName)) {
-                    checkHashMap(node, classReference);
+                    checkHashMap(node);
                 } else if (SPARSE_ARRAY.equals(typeName)) {
-                    checkSparseArray(node, classReference);
+                    checkSparseArray(node);
                 }
             }
 
@@ -214,21 +229,20 @@ public class JavaPerformanceDetector extends Detector implements Detector.JavaPs
                         || typeName.equals(TYPE_DOUBLE_WRAPPER)
                         || typeName.equals(TYPE_BYTE_WRAPPER))
                         //&& node.astTypeReference().astParts().size() == 1
-                        && node.getArgumentList() != null
-                        && node.getArgumentList().getExpressions().length == 1) {
-                    String argument = node.getArgumentList().getExpressions()[0].getText();
+                        && node.getValueArgumentCount() == 1) {
+                    String argument = node.getValueArguments().get(0).asSourceString();
                     mContext.report(USE_VALUE_OF, node, mContext.getLocation(node), getUseValueOfErrorMessage(
                             typeName, argument));
                 }
             }
 
             if (mFlagAllocations
-                    && !(skipParentheses(node.getParent()) instanceof PsiThrowStatement)
+                    && !(skipParentheses(node.getContainingElement()) instanceof UThrowExpression)
                     && mCheckAllocations) {
                 // Make sure we're still inside the method declaration that marked
                 // mInDraw as true, in case we've left it and we're in a static
                 // block or something:
-                PsiMethod method = PsiTreeUtil.getParentOfType(node, PsiMethod.class);
+                PsiMethod method = UastUtils.getParentOfType(node, UMethod.class);
                 if (method != null && isBlockedAllocationMethod(method)
                         && !isLazilyInitialized(node)) {
                     reportAllocation(node);
@@ -236,47 +250,47 @@ public class JavaPerformanceDetector extends Detector implements Detector.JavaPs
             }
         }
 
-        private void reportAllocation(PsiElement node) {
+        private void reportAllocation(UElement node) {
             mContext.report(PAINT_ALLOC, node, mContext.getLocation(node),
                 "Avoid object allocations during draw/layout operations (preallocate and " +
                 "reuse instead)");
         }
 
-        @Override
-        public void visitMethodCallExpression(PsiMethodCallExpression node) {
+        private void visitMethodCallExpression(UCallExpression node) {
             if (!mFlagAllocations) {
                 return;
             }
-            PsiReferenceExpression expression = node.getMethodExpression();
-            PsiElement qualifier = expression.getQualifier();
-            if (qualifier == null) {
+            UExpression receiver = node.getReceiver();
+            if (receiver == null) {
                 return;
             }
-            String methodName = expression.getReferenceName();
-            if (methodName == null) {
+
+            String functionName = node.getMethodName();
+            if (functionName == null) {
                 return;
             }
+
             // Look for forbidden methods
-            if (methodName.equals("createBitmap")                              //$NON-NLS-1$
-                    || methodName.equals("createScaledBitmap")) {              //$NON-NLS-1$
-                PsiMethod method = node.resolveMethod();
-                if (method != null && mContext.getEvaluator().isMemberInClass(method,
+            if (functionName.equals("createBitmap")                              //$NON-NLS-1$
+                    || functionName.equals("createScaledBitmap")) {              //$NON-NLS-1$
+                PsiMethod method = node.resolve();
+                if (method != null && JavaEvaluator.isMemberInClass(method,
                         "android.graphics.Bitmap") && !isLazilyInitialized(node)) {
                     reportAllocation(node);
                 }
-            } else if (methodName.startsWith("decode")) {                      //$NON-NLS-1$
+            } else if (functionName.startsWith("decode")) {                      //$NON-NLS-1$
                 // decodeFile, decodeByteArray, ...
-                PsiMethod method = node.resolveMethod();
-                if (method != null && mContext.getEvaluator().isMemberInClass(method,
+                PsiMethod method = node.resolve();
+                if (method != null && JavaEvaluator.isMemberInClass(method,
                         "android.graphics.BitmapFactory") && !isLazilyInitialized(node)) {
                     reportAllocation(node);
                 }
-            } else if (methodName.equals("getClipBounds")) {                   //$NON-NLS-1$
-                if (node.getArgumentList().getExpressions().length == 0) {
+            } else if (functionName.equals("getClipBounds")) {                   //$NON-NLS-1$
+                if (node.getValueArguments().isEmpty()) {
                     mContext.report(PAINT_ALLOC, node, mContext.getLocation(node),
                             "Avoid object allocations during draw operations: Use " +
-                            "`Canvas.getClipBounds(Rect)` instead of `Canvas.getClipBounds()` " +
-                            "which allocates a temporary `Rect`");
+                                    "`Canvas.getClipBounds(Rect)` instead of `Canvas.getClipBounds()` " +
+                                    "which allocates a temporary `Rect`");
                 }
             }
         }
@@ -301,13 +315,13 @@ public class JavaPerformanceDetector extends Detector implements Detector.JavaPs
          *    }
          * </pre>
          */
-        private static boolean isLazilyInitialized(PsiElement node) {
-            PsiElement curr = node.getParent();
+        private static boolean isLazilyInitialized(UElement node) {
+            UElement curr = node.getContainingElement();
             while (curr != null) {
-                if (curr instanceof PsiMethod) {
+                if (curr instanceof UMethod) {
                     return false;
-                } else if (curr instanceof PsiIfStatement) {
-                    PsiIfStatement ifNode = (PsiIfStatement) curr;
+                } else if (curr instanceof UIfExpression) {
+                    UIfExpression ifNode = (UIfExpression) curr;
                     // See if the if block represents a lazy initialization:
                     // compute all variable names seen in the condition
                     // (e.g. for "if (foo == null || bar != foo)" the result is "foo,bar"),
@@ -317,8 +331,8 @@ public class JavaPerformanceDetector extends Detector implements Detector.JavaPs
                     // about.)
                     List<String> assignments = new ArrayList<String>();
                     AssignmentTracker visitor = new AssignmentTracker(assignments);
-                    if (ifNode.getThenBranch() != null) {
-                        ifNode.getThenBranch().accept(visitor);
+                    if (ifNode.getThenExpression() != null) {
+                        ifNode.getThenExpression().accept(visitor);
                     }
                     if (!assignments.isEmpty()) {
                         List<String> references = new ArrayList<String>();
@@ -333,7 +347,7 @@ public class JavaPerformanceDetector extends Detector implements Detector.JavaPs
                     return false;
 
                 }
-                curr = curr.getParent();
+                curr = curr.getContainingElement();
             }
 
             return false;
@@ -342,30 +356,31 @@ public class JavaPerformanceDetector extends Detector implements Detector.JavaPs
         /** Adds any variables referenced in the given expression into the given list */
         private static void addReferencedVariables(
                 @NonNull Collection<String> variables,
-                @Nullable PsiExpression expression) {
-            if (expression instanceof PsiBinaryExpression) {
-                PsiBinaryExpression binary = (PsiBinaryExpression) expression;
-                addReferencedVariables(variables, binary.getLOperand());
-                addReferencedVariables(variables, binary.getROperand());
-            } else if (expression instanceof PsiPrefixExpression) {
-                PsiPrefixExpression unary = (PsiPrefixExpression) expression;
+                @Nullable UExpression expression) {
+            if (expression instanceof UBinaryExpression) {
+                UBinaryExpression binary = (UBinaryExpression) expression;
+                addReferencedVariables(variables, binary.getLeftOperand());
+                addReferencedVariables(variables, binary.getRightOperand());
+            } else if (expression instanceof UPrefixExpression) {
+                UPrefixExpression unary = (UPrefixExpression) expression;
                 addReferencedVariables(variables, unary.getOperand());
-            } else if (expression instanceof PsiParenthesizedExpression) {
-                PsiParenthesizedExpression exp = (PsiParenthesizedExpression) expression;
+            } else if (expression instanceof UParenthesizedExpression) {
+                UParenthesizedExpression exp = (UParenthesizedExpression) expression;
                 addReferencedVariables(variables, exp.getExpression());
-            } else if (expression instanceof PsiIdentifier) {
-                PsiIdentifier reference = (PsiIdentifier) expression;
-                variables.add(reference.getText());
-            } else if (expression instanceof PsiReferenceExpression) {
-                PsiReferenceExpression ref = (PsiReferenceExpression) expression;
-                PsiElement qualifier = ref.getQualifier();
-                if (qualifier != null) {
-                    if (qualifier instanceof PsiThisExpression ||
-                            qualifier instanceof PsiSuperExpression) {
-                        variables.add(ref.getReferenceName());
+            } else if (expression instanceof USimpleNameReferenceExpression) {
+                USimpleNameReferenceExpression reference = (USimpleNameReferenceExpression) expression;
+                variables.add(reference.getIdentifier());
+            } else if (expression instanceof UQualifiedReferenceExpression) {
+                UQualifiedReferenceExpression ref = (UQualifiedReferenceExpression) expression;
+                UExpression receiver = ref.getReceiver();
+                UExpression selector = ref.getSelector();
+                if (receiver instanceof UThisExpression || receiver instanceof USuperExpression) {
+                    String identifier = (selector instanceof USimpleNameReferenceExpression)
+                            ? ((USimpleNameReferenceExpression) selector).getIdentifier()
+                            : null;
+                    if (identifier != null) {
+                        variables.add(identifier);
                     }
-                } else {
-                    variables.add(ref.getReferenceName());
                 }
             }
         }
@@ -374,23 +389,20 @@ public class JavaPerformanceDetector extends Detector implements Detector.JavaPs
          * Returns whether the given method declaration represents a method
          * where allocating objects is not allowed for performance reasons
          */
-        private boolean isBlockedAllocationMethod(
+        private static boolean isBlockedAllocationMethod(
                 @NonNull PsiMethod node) {
-            JavaEvaluator evaluator = mContext.getEvaluator();
-            return isOnDrawMethod(evaluator, node)
-                    || isOnMeasureMethod(evaluator, node)
-                    || isOnLayoutMethod(evaluator, node)
-                    || isLayoutMethod(evaluator, node);
+            return isOnDrawMethod(node)
+                    || isOnMeasureMethod(node)
+                    || isOnLayoutMethod(node)
+                    || isLayoutMethod(node);
         }
 
         /**
          * Returns true if this method looks like it's overriding android.view.View's
          * {@code protected void onDraw(Canvas canvas)}
          */
-        private static boolean isOnDrawMethod(
-                @NonNull JavaEvaluator evaluator,
-                @NonNull PsiMethod node) {
-            return ON_DRAW.equals(node.getName()) && evaluator.parametersMatch(node, CLASS_CANVAS);
+        private static boolean isOnDrawMethod(@NonNull PsiMethod node) {
+            return ON_DRAW.equals(node.getName()) && JavaEvaluator.parametersMatch(node, CLASS_CANVAS);
         }
 
         /**
@@ -399,10 +411,8 @@ public class JavaPerformanceDetector extends Detector implements Detector.JavaPs
          * {@code protected void onLayout(boolean changed, int left, int top,
          *      int right, int bottom)}
          */
-        private static boolean isOnLayoutMethod(
-                @NonNull JavaEvaluator evaluator,
-                @NonNull PsiMethod node) {
-            return ON_LAYOUT.equals(node.getName()) && evaluator.parametersMatch(node,
+        private static boolean isOnLayoutMethod(@NonNull PsiMethod node) {
+            return ON_LAYOUT.equals(node.getName()) && JavaEvaluator.parametersMatch(node,
                     TYPE_BOOLEAN, TYPE_INT, TYPE_INT, TYPE_INT, TYPE_INT);
         }
 
@@ -410,10 +420,8 @@ public class JavaPerformanceDetector extends Detector implements Detector.JavaPs
          * Returns true if this method looks like it's overriding android.view.View's
          * {@code protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec)}
          */
-        private static boolean isOnMeasureMethod(
-                @NonNull JavaEvaluator evaluator,
-                @NonNull PsiMethod node) {
-            return ON_MEASURE.equals(node.getName()) && evaluator.parametersMatch(node,
+        private static boolean isOnMeasureMethod(@NonNull PsiMethod node) {
+            return ON_MEASURE.equals(node.getName()) && JavaEvaluator.parametersMatch(node,
                     TYPE_INT, TYPE_INT);
         }
 
@@ -421,10 +429,8 @@ public class JavaPerformanceDetector extends Detector implements Detector.JavaPs
          * Returns true if this method looks like it's overriding android.view.View's
          * {@code public void layout(int l, int t, int r, int b)}
          */
-        private static boolean isLayoutMethod(
-                @NonNull JavaEvaluator evaluator,
-                @NonNull PsiMethod node) {
-            return LAYOUT.equals(node.getName()) && evaluator.parametersMatch(node,
+        private static boolean isLayoutMethod(@NonNull PsiMethod node) {
+            return LAYOUT.equals(node.getName()) && JavaEvaluator.parametersMatch(node,
                     TYPE_INT, TYPE_INT, TYPE_INT, TYPE_INT);
         }
 
@@ -433,16 +439,14 @@ public class JavaPerformanceDetector extends Detector implements Detector.JavaPs
          * to a HashMap constructor call that is eligible for replacement by a
          * SparseArray call instead
          */
-        private void checkHashMap(
-                @NonNull PsiNewExpression node,
-                @NonNull PsiJavaCodeReferenceElement reference) {
-            PsiType[] types = reference.getTypeParameters();
-            if (types.length == 2) {
-                PsiType first = types[0];
+        private void checkHashMap(@NonNull UCallExpression node) {
+            List<PsiType> types = node.getTypeArguments();
+            if (types.size() == 2) {
+                PsiType first = types.get(0);
                 String typeName = first.getCanonicalText();
                 int minSdk = mContext.getMainProject().getMinSdk();
                 if (TYPE_INTEGER_WRAPPER.equals(typeName) || TYPE_BYTE_WRAPPER.equals(typeName)) {
-                    String valueType = types[1].getCanonicalText();
+                    String valueType = types.get(1).getCanonicalText();
                     if (valueType.equals(TYPE_INTEGER_WRAPPER)) {
                         mContext.report(USE_SPARSE_ARRAY, node, mContext.getLocation(node),
                             "Use new `SparseIntArray(...)` instead for better performance");
@@ -471,12 +475,10 @@ public class JavaPerformanceDetector extends Detector implements Detector.JavaPs
             }
         }
 
-        private void checkSparseArray(
-                @NonNull PsiNewExpression node,
-                @NonNull PsiJavaCodeReferenceElement reference) {
-            PsiType[] types = reference.getTypeParameters();
-            if (types.length == 1) {
-                String valueType = types[0].getCanonicalText();
+        private void checkSparseArray(@NonNull UCallExpression node) {
+            List<PsiType> types = node.getTypeArguments();
+            if (types.size() == 1) {
+                String valueType = types.get(0).getCanonicalText();
                 if (valueType.equals(TYPE_INTEGER_WRAPPER)) {
                     mContext.report(USE_SPARSE_ARRAY, node, mContext.getLocation(node),
                         "Use `new SparseIntArray(...)` instead for better performance");
@@ -510,7 +512,7 @@ public class JavaPerformanceDetector extends Detector implements Detector.JavaPs
     }
 
     /** Visitor which records variable names assigned into */
-    private static class AssignmentTracker extends JavaRecursiveElementVisitor {
+    private static class AssignmentTracker extends AbstractUastVisitor {
         private final Collection<String> mVariables;
 
         public AssignmentTracker(Collection<String> variables) {
@@ -518,21 +520,29 @@ public class JavaPerformanceDetector extends Detector implements Detector.JavaPs
         }
 
         @Override
-        public void visitAssignmentExpression(PsiAssignmentExpression node) {
-            super.visitAssignmentExpression(node);
-
-            PsiExpression left = node.getLExpression();
-            if (left instanceof PsiReferenceExpression) {
-                PsiReferenceExpression ref = (PsiReferenceExpression) left;
-                if (ref.getQualifier() instanceof PsiThisExpression ||
-                        ref.getQualifier() instanceof PsiSuperExpression) {
-                    mVariables.add(ref.getReferenceName());
-                } else {
-                    mVariables.add(ref.getText());
+        public boolean visitBinaryExpression(UBinaryExpression node) {
+            if (UastExpressionUtils.isAssignment(node)) {
+                UExpression left = node.getLeftOperand();
+                if (left instanceof UQualifiedReferenceExpression) {
+                    UQualifiedReferenceExpression ref = (UQualifiedReferenceExpression) left;
+                    if (ref.getReceiver() instanceof UThisExpression ||
+                            ref.getReceiver() instanceof USuperExpression) {
+                        PsiElement resolved = ref.resolve();
+                        if (resolved instanceof PsiField) {
+                            mVariables.add(((PsiField) resolved).getName());
+                        }
+                    } else {
+                        PsiElement resolved = ref.resolve();
+                        if (resolved instanceof PsiField) {
+                            mVariables.add(((PsiField) resolved).getName());
+                        }
+                    }
+                } else if (left instanceof USimpleNameReferenceExpression) {
+                    mVariables.add(((USimpleNameReferenceExpression) left).getIdentifier());
                 }
-            } else if (left instanceof PsiIdentifier) {
-                mVariables.add(left.getText());
             }
+            
+            return super.visitBinaryExpression(node);
         }
     }
 }

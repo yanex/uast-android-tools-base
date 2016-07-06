@@ -6,14 +6,15 @@ import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Detector;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
-import com.android.tools.lint.detector.api.Location;
 import com.android.tools.lint.detector.api.JavaContext;
-import com.android.tools.lint.detector.api.Severity;
+import com.android.tools.lint.detector.api.Location;
 import com.android.tools.lint.detector.api.Scope;
-import com.intellij.openapi.util.TextRange;
-import com.intellij.psi.JavaElementVisitor;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiLiteralExpression;
+import com.android.tools.lint.detector.api.Severity;
+
+import org.jetbrains.uast.UElement;
+import org.jetbrains.uast.ULiteralExpression;
+import org.jetbrains.uast.visitor.AbstractUastVisitor;
+import org.jetbrains.uast.visitor.UastVisitor;
 
 import java.util.Collections;
 import java.util.List;
@@ -23,7 +24,7 @@ import java.util.regex.Pattern;
 /**
  * Detector that looks for leaked credentials in strings.
  */
-public class StringAuthLeakDetector extends Detector implements Detector.JavaPsiScanner {
+public class StringAuthLeakDetector extends Detector implements Detector.UastScanner {
 
     /** Looks for hidden code */
     public static final Issue AUTH_LEAK = Issue.create(
@@ -35,19 +36,19 @@ public class StringAuthLeakDetector extends Detector implements Detector.JavaPsi
 
     @Nullable
     @Override
-    public List<Class<? extends PsiElement>> getApplicablePsiTypes() {
-        return Collections.<Class<? extends PsiElement>>singletonList(PsiLiteralExpression.class);
+    public List<Class<? extends UElement>> getApplicableUastTypes() {
+        return Collections.<Class<? extends UElement>>singletonList(ULiteralExpression.class);
     }
 
     @Nullable
     @Override
-    public JavaElementVisitor createPsiVisitor(@NonNull JavaContext context) {
+    public UastVisitor createUastVisitor(@NonNull JavaContext context) {
         return new AuthLeakChecker(context);
     }
 
-    private static class AuthLeakChecker extends JavaElementVisitor {
-        private final static String LEGAL_CHARS = "([\\w_.!~*\'()%;&=+$,-]+)";      // From RFC 2396
-        private final static Pattern AUTH_REGEXP =
+    private static class AuthLeakChecker extends AbstractUastVisitor {
+        private static final String LEGAL_CHARS = "([\\w_.!~*\'()%;&=+$,-]+)";      // From RFC 2396
+        private static final Pattern AUTH_REGEXP =
                 Pattern.compile("([\\w+.-]+)://" + LEGAL_CHARS + ':' + LEGAL_CHARS + '@' +
                         LEGAL_CHARS);
 
@@ -56,22 +57,21 @@ public class StringAuthLeakDetector extends Detector implements Detector.JavaPsi
         private AuthLeakChecker(JavaContext context) {
             mContext = context;
         }
-
+        
         @Override
-        public void visitLiteralExpression(PsiLiteralExpression node) {
+        public boolean visitLiteralExpression(ULiteralExpression node) {
             if (node.getValue() instanceof String) {
                 Matcher matcher = AUTH_REGEXP.matcher((String)node.getValue());
                 if (matcher.find()) {
                     String password = matcher.group(3);
                     if (password == null || (password.startsWith("%") && password.endsWith("s"))) {
-                        return;
+                        return super.visitLiteralExpression(node);
                     }
-                    TextRange textRange = node.getTextRange();
-                    Location location = mContext.getRangeLocation(node, matcher.start() + 1, node,
-                            -(textRange.getLength() - matcher.end() - 1));
+                    Location location = mContext.getLocation(node);
                     mContext.report(AUTH_LEAK, node, location, "Possible credential leak");
                 }
             }
+            return super.visitLiteralExpression(node);
         }
     }
 }

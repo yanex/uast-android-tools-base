@@ -22,28 +22,28 @@ import static com.android.tools.lint.checks.SupportAnnotationDetector.PERMISSION
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
+import com.android.tools.lint.client.api.UastLintUtils;
 import com.android.tools.lint.detector.api.JavaContext;
 import com.intellij.psi.PsiAnnotation;
-import com.intellij.psi.PsiAssignmentExpression;
 import com.intellij.psi.PsiClass;
-import com.intellij.psi.PsiConditionalExpression;
-import com.intellij.psi.PsiDeclarationStatement;
 import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiExpression;
-import com.intellij.psi.PsiExpressionList;
-import com.intellij.psi.PsiExpressionStatement;
 import com.intellij.psi.PsiField;
-import com.intellij.psi.PsiJavaCodeReferenceElement;
-import com.intellij.psi.PsiLiteral;
-import com.intellij.psi.PsiLocalVariable;
 import com.intellij.psi.PsiModifierList;
 import com.intellij.psi.PsiNameValuePair;
-import com.intellij.psi.PsiNewExpression;
-import com.intellij.psi.PsiParenthesizedExpression;
-import com.intellij.psi.PsiReferenceExpression;
-import com.intellij.psi.PsiStatement;
-import com.intellij.psi.PsiTypeCastExpression;
-import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.psi.PsiVariable;
+
+import org.jetbrains.uast.UBinaryExpressionWithType;
+import org.jetbrains.uast.UCallExpression;
+import org.jetbrains.uast.UElement;
+import org.jetbrains.uast.UExpression;
+import org.jetbrains.uast.UIfExpression;
+import org.jetbrains.uast.UParenthesizedExpression;
+import org.jetbrains.uast.UastLiteralUtils;
+import org.jetbrains.uast.UastUtils;
+import org.jetbrains.uast.expressions.UReferenceExpression;
+import org.jetbrains.uast.util.UastExpressionUtils;
+
+import java.util.List;
 
 /**
  * Utility for locating permissions required by an intent or content resolver
@@ -87,7 +87,7 @@ public class PermissionFinder {
             this.name = name;
         }
     }
-
+    
     /**
      * Searches for a permission requirement for the given parameter in the given call
      *
@@ -100,7 +100,7 @@ public class PermissionFinder {
     public static Result findRequiredPermissions(
             @NonNull Operation operation,
             @NonNull JavaContext context,
-            @NonNull PsiElement parameter) {
+            @NonNull UElement parameter) {
 
         // To find the permission required by an intent, we proceed in 3 steps:
         // (1) Locate the parameter in the start call that corresponds to
@@ -122,13 +122,13 @@ public class PermissionFinder {
 
     @NonNull private final JavaContext mContext;
     @NonNull private final Operation mOperation;
-
+    
     @Nullable
-    public Result search(@NonNull PsiElement node) {
-        if (node instanceof PsiLiteral && "null".equals(node.getText())) {
+    public Result search(@NonNull UElement node) {
+        if (UastLiteralUtils.isNullLiteral(node)) {
             return null;
-        } else if (node instanceof PsiConditionalExpression) {
-            PsiConditionalExpression expression = (PsiConditionalExpression) node;
+        } else if (node instanceof UIfExpression) {
+            UIfExpression expression = (UIfExpression) node;
             if (expression.getThenExpression() != null) {
                 Result result = search(expression.getThenExpression());
                 if (result != null) {
@@ -141,39 +141,34 @@ public class PermissionFinder {
                     return result;
                 }
             }
-        } else if (node instanceof PsiTypeCastExpression) {
-            PsiTypeCastExpression cast = (PsiTypeCastExpression) node;
-            PsiExpression operand = cast.getOperand();
-            if (operand != null) {
-                return search(operand);
-            }
-        } else if (node instanceof PsiParenthesizedExpression) {
-            PsiParenthesizedExpression parens = (PsiParenthesizedExpression) node;
-            PsiExpression expression = parens.getExpression();
+        } else if (UastExpressionUtils.isTypeCast(node)) {
+            UBinaryExpressionWithType cast = (UBinaryExpressionWithType) node;
+            UExpression operand = cast.getOperand();
+            return search(operand);
+        } else if (node instanceof UParenthesizedExpression) {
+            UParenthesizedExpression parens = (UParenthesizedExpression) node;
+            UExpression expression = parens.getExpression();
             if (expression != null) {
                 return search(expression);
             }
-        } else if (node instanceof PsiNewExpression && mOperation == Operation.ACTION) {
+        } else if (UastExpressionUtils.isConstructorCall(node) && mOperation == Operation.ACTION) {
             // Identifies "new Intent(argument)" calls and, if found, continues
             // resolving the argument instead looking for the action definition
-            PsiNewExpression call = (PsiNewExpression) node;
-            PsiJavaCodeReferenceElement classReference = call.getClassReference();
-            String type = classReference != null ? classReference.getQualifiedName() : null;
+            UCallExpression call = (UCallExpression) node;
+            UReferenceExpression classReference = call.getClassReference();
+            String type = classReference != null ? UastUtils.getQualifiedName(classReference) : null;
             if (CLASS_INTENT.equals(type)) {
-                PsiExpressionList argumentList = call.getArgumentList();
-                if (argumentList != null) {
-                    PsiExpression[] expressions = argumentList.getExpressions();
-                    if (expressions.length > 0) {
-                        PsiExpression action = expressions[0];
-                        if (action != null) {
-                            return search(action);
-                        }
+                List<UExpression> expressions = call.getValueArguments();
+                if (!expressions.isEmpty()) {
+                    UExpression action = expressions.get(0);
+                    if (action != null) {
+                        return search(action);
                     }
                 }
             }
             return null;
-        } else if (node instanceof PsiReferenceExpression) {
-            PsiElement resolved = ((PsiReferenceExpression) node).resolve();
+        } else if (node instanceof UReferenceExpression) {
+            PsiElement resolved = ((UReferenceExpression) node).resolve();
             if (resolved instanceof PsiField) {
                 PsiField field = (PsiField) resolved;
                 if (mOperation == Operation.ACTION) {
@@ -210,49 +205,15 @@ public class PermissionFinder {
                 } else {
                     assert false : mOperation;
                 }
-            } else if (resolved instanceof PsiLocalVariable) {
-                PsiLocalVariable variable = (PsiLocalVariable) resolved;
-                String targetName = variable.getName();
-                PsiStatement statement = PsiTreeUtil.getParentOfType(node, PsiStatement.class, false);
-                if (statement != null && targetName != null) {
-                    PsiStatement prev = PsiTreeUtil.getPrevSiblingOfType(statement,
-                            PsiStatement.class);
+            }
+            
+            if (resolved instanceof PsiVariable) {
+                PsiVariable variable = (PsiVariable) resolved;
+                UExpression lastAssignment =
+                        UastLintUtils.findLastAssignment(variable, node, mContext);
 
-                    while (prev != null) {
-                        if (prev instanceof PsiDeclarationStatement) {
-                            for (PsiElement element : ((PsiDeclarationStatement) prev)
-                                    .getDeclaredElements()) {
-                                if (variable.equals(element)) {
-                                    if (variable.getInitializer() != null) {
-                                        return search(variable.getInitializer());
-                                    } else {
-                                        break;
-                                    }
-                                }
-                            }
-                        } else if (prev instanceof PsiExpressionStatement) {
-                            PsiExpression expression = ((PsiExpressionStatement) prev)
-                                    .getExpression();
-                            if (expression instanceof PsiAssignmentExpression) {
-                                PsiAssignmentExpression assign
-                                        = (PsiAssignmentExpression) expression;
-                                PsiExpression lhs = assign.getLExpression();
-                                if (lhs instanceof PsiReferenceExpression) {
-                                    PsiReferenceExpression reference = (PsiReferenceExpression) lhs;
-                                    if (targetName.equals(reference.getReferenceName()) &&
-                                            reference.getQualifier() == null) {
-                                        if (assign.getRExpression() != null) {
-                                            return search(assign.getRExpression());
-                                        } else {
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        prev = PsiTreeUtil.getPrevSiblingOfType(prev,
-                                PsiStatement.class);
-                    }
+                if (lastAssignment != null) {
+                    return search(lastAssignment);
                 }
             }
         }

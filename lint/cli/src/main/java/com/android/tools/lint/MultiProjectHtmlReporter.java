@@ -16,8 +16,6 @@
 
 package com.android.tools.lint;
 
-import static com.android.tools.lint.HtmlReporter.INLINE_RESOURCES;
-
 import com.android.annotations.NonNull;
 import com.android.tools.lint.detector.api.Project;
 import com.android.tools.lint.detector.api.Severity;

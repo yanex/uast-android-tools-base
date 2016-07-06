@@ -20,7 +20,6 @@ import static com.android.SdkConstants.ANDROID_URI;
 import static com.android.SdkConstants.ATTR_LAYOUT_RESOURCE_PREFIX;
 import static com.android.tools.lint.checks.ViewHolderDetector.INFLATE;
 
-import com.android.SdkConstants;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.annotations.VisibleForTesting;
@@ -28,10 +27,12 @@ import com.android.ide.common.res2.AbstractResourceRepository;
 import com.android.ide.common.res2.ResourceFile;
 import com.android.ide.common.res2.ResourceItem;
 import com.android.resources.ResourceType;
+import com.android.tools.lint.client.api.AndroidReference;
 import com.android.tools.lint.client.api.LintClient;
+import com.android.tools.lint.client.api.UastLintUtils;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Context;
-import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
+import com.android.tools.lint.detector.api.Detector;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
@@ -45,13 +46,12 @@ import com.android.tools.lint.detector.api.XmlContext;
 import com.android.utils.Pair;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import com.intellij.psi.JavaElementVisitor;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiExpression;
-import com.intellij.psi.PsiMethod;
-import com.intellij.psi.PsiMethodCallExpression;
-import com.intellij.psi.PsiReferenceExpression;
 
+import org.jetbrains.uast.UCallExpression;
+import org.jetbrains.uast.UExpression;
+import org.jetbrains.uast.UMethod;
+import org.jetbrains.uast.UastLiteralUtils;
+import org.jetbrains.uast.visitor.UastVisitor;
 import org.kxml2.io.KXmlParser;
 import org.w3c.dom.Attr;
 import org.w3c.dom.Document;
@@ -71,7 +71,7 @@ import java.util.Set;
 /**
  * Looks for layout inflation calls passing null as the view root
  */
-public class LayoutInflationDetector extends LayoutDetector implements JavaPsiScanner {
+public class LayoutInflationDetector extends LayoutDetector implements Detector.UastScanner {
 
     @SuppressWarnings("unchecked")
     private static final Implementation IMPLEMENTATION = new Implementation(
@@ -141,7 +141,7 @@ public class LayoutInflationDetector extends LayoutDetector implements JavaPsiSc
         }
     }
 
-    // ---- Implements JavaScanner ----
+    // ---- Implements UastScanner ----
 
     @Nullable
     @Override
@@ -150,47 +150,41 @@ public class LayoutInflationDetector extends LayoutDetector implements JavaPsiSc
     }
 
     @Override
-    public void visitMethod(@NonNull JavaContext context, @Nullable JavaElementVisitor visitor,
-            @NonNull PsiMethodCallExpression call, @NonNull PsiMethod method) {
+    public void visitMethod(@NonNull JavaContext context, @Nullable UastVisitor visitor,
+            @NonNull UCallExpression call, @NonNull UMethod method) {
         assert method.getName().equals(INFLATE);
-        if (call.getMethodExpression().getQualifier() == null) {
+        if (call.getReceiver() == null) {
             return;
         }
-        PsiExpression[] arguments = call.getArgumentList().getExpressions();
-        if (arguments.length < 2) {
+        List<UExpression> arguments = call.getValueArguments();
+        if (arguments.size() < 2) {
             return;
         }
 
-        PsiExpression first = arguments[0];
-        if (!(first instanceof PsiReferenceExpression)) {
+        UExpression first = arguments.get(0);
+        AndroidReference androidReference = UastLintUtils.toAndroidReferenceViaResolve(first);
+        if (androidReference == null) {
             return;
         }
-        PsiExpression second = arguments[1];
-        if (!LintUtils.isNullLiteral(second)) {
+        
+        UExpression second = arguments.get(1);
+        if (!UastLiteralUtils.isNullLiteral(second)) {
             return;
         }
-        PsiReferenceExpression select = (PsiReferenceExpression) first;
-        PsiElement operand = select.getQualifier();
-        if (operand instanceof PsiReferenceExpression) {
-            PsiReferenceExpression rLayout = (PsiReferenceExpression) operand;
-            if (ResourceType.LAYOUT.getName().equals(rLayout.getReferenceName()) &&
-                    rLayout.getQualifier() != null &&
-                    rLayout.getQualifier().getText().endsWith(SdkConstants.R_CLASS)) {
-                String layoutName = select.getReferenceName();
-                if (context.getScope().contains(Scope.RESOURCE_FILE)) {
-                    // We're doing a full analysis run: we can gather this information
-                    // incrementally
-                    if (!context.getDriver().isSuppressed(context, ISSUE, call)) {
-                        if (mPendingErrors == null) {
-                            mPendingErrors = Lists.newArrayList();
-                        }
-                        Location location = context.getLocation(second);
-                        mPendingErrors.add(Pair.of(layoutName, location));
-                    }
-                } else if (hasLayoutParams(context, layoutName)) {
-                    context.report(ISSUE, call, context.getLocation(second), ERROR_MESSAGE);
+
+        String layoutName = androidReference.getName();
+        if (context.getScope().contains(Scope.RESOURCE_FILE)) {
+            // We're doing a full analysis run: we can gather this information
+            // incrementally
+            if (!context.getDriver().isSuppressed(context, ISSUE, call)) {
+                if (mPendingErrors == null) {
+                    mPendingErrors = Lists.newArrayList();
                 }
+                Location location = context.getLocation(second);
+                mPendingErrors.add(Pair.of(layoutName, location));
             }
+        } else if (hasLayoutParams(context, layoutName)) {
+            context.report(ISSUE, call, context.getLocation(second), ERROR_MESSAGE);
         }
     }
 

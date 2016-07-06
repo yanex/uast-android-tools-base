@@ -20,23 +20,23 @@ import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Detector;
-import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
-import com.intellij.psi.JavaElementVisitor;
-import com.intellij.psi.PsiExpression;
-import com.intellij.psi.PsiLiteral;
-import com.intellij.psi.PsiMethod;
-import com.intellij.psi.PsiMethodCallExpression;
+
+import org.jetbrains.uast.UCallExpression;
+import org.jetbrains.uast.UExpression;
+import org.jetbrains.uast.ULiteralExpression;
+import org.jetbrains.uast.UMethod;
+import org.jetbrains.uast.visitor.UastVisitor;
 
 import java.util.ArrayList;
 import java.util.List;
 
 /** Detector looking for text messages sent to an unlocalized phone number. */
-public class NonInternationalizedSmsDetector extends Detector implements JavaPsiScanner {
+public class NonInternationalizedSmsDetector extends Detector implements Detector.UastScanner {
     /** The main issue discovered by this detector */
     public static final Issue ISSUE = Issue.create(
             "UnlocalizedSms", //$NON-NLS-1$
@@ -69,22 +69,22 @@ public class NonInternationalizedSmsDetector extends Detector implements JavaPsi
     }
 
     @Override
-    public void visitMethod(@NonNull JavaContext context, @Nullable JavaElementVisitor visitor,
-            @NonNull PsiMethodCallExpression call, @NonNull PsiMethod method) {
-        if (call.getMethodExpression().getQualifier() == null) {
+    public void visitMethod(@NonNull JavaContext context, @Nullable UastVisitor visitor,
+            @NonNull UCallExpression call, @NonNull UMethod method) {
+        if (call.getReceiver() == null) {
             // "sendTextMessage"/"sendMultipartTextMessage" in the code with no operand
             return;
         }
 
-        PsiExpression[] args = call.getArgumentList().getExpressions();
-        if (args.length != 5) {
+        List<UExpression> args = call.getValueArguments();
+        if (args.size() != 5) {
             return;
         }
-        PsiExpression destinationAddress = args[0];
-        if (!(destinationAddress instanceof PsiLiteral)) {
+        UExpression destinationAddress = args.get(0);
+        if (!(destinationAddress instanceof ULiteralExpression)) {
             return;
         }
-        Object literal = ((PsiLiteral)destinationAddress).getValue();
+        Object literal = ((ULiteralExpression) destinationAddress).getValue();
         if (!(literal instanceof String)) {
             return;
         }
@@ -93,8 +93,8 @@ public class NonInternationalizedSmsDetector extends Detector implements JavaPsi
             return;
         }
         context.report(ISSUE, call, context.getLocation(destinationAddress),
-            "To make sure the SMS can be sent by all users, please start the SMS number " +
-            "with a + and a country code or restrict the code invocation to people in the " +
-            "country you are targeting.");
+                "To make sure the SMS can be sent by all users, please start the SMS number " +
+                        "with a + and a country code or restrict the code invocation to people in the " +
+                        "country you are targeting.");
     }
 }

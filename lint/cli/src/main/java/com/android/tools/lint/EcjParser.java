@@ -33,16 +33,24 @@ import com.android.tools.lint.detector.api.JavaContext;
 import com.android.tools.lint.detector.api.Location;
 import com.android.tools.lint.detector.api.Project;
 import com.android.tools.lint.detector.api.Scope;
-import com.android.tools.lint.psi.EcjPsiBuilder;
-import com.android.tools.lint.psi.EcjPsiJavaEvaluator;
-import com.android.tools.lint.psi.EcjPsiManager;
-import com.google.common.base.Joiner;
+import com.android.tools.lint.psiNew.NewJavaEvaluator;
+import com.android.tools.lint.psiNew.UnimplementedLintPsiApiException;
 import com.google.common.base.Splitter;
 import com.google.common.collect.Lists;
-import com.google.common.collect.MapMaker;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.intellij.core.JavaCoreProjectEnvironment;
+import com.intellij.mock.MockProject;
+import com.intellij.openapi.components.ServiceManager;
+import com.intellij.openapi.util.AtomicNullableLazyValue;
+import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.Key;
+import com.intellij.openapi.vfs.StandardFileSystems;
+import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.vfs.VirtualFileSystem;
+import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiJavaFile;
+import com.intellij.psi.PsiManager;
 
 import org.eclipse.jdt.core.compiler.CategorizedProblem;
 import org.eclipse.jdt.core.compiler.IProblem;
@@ -121,6 +129,8 @@ import org.eclipse.jdt.internal.compiler.parser.Parser;
 import org.eclipse.jdt.internal.compiler.problem.AbortCompilation;
 import org.eclipse.jdt.internal.compiler.problem.DefaultProblemFactory;
 import org.eclipse.jdt.internal.compiler.problem.ProblemReporter;
+import org.jetbrains.uast.UFile;
+import org.jetbrains.uast.UastContext;
 
 import java.io.File;
 import java.lang.reflect.Modifier;
@@ -162,13 +172,18 @@ public class EcjParser extends JavaParser {
      */
     private static final boolean KEEP_LOOKUP_ENVIRONMENT = !Boolean.getBoolean("lint.reset.ecj");
 
+    public static final Key<AtomicNullableLazyValue<ExternalAnnotationRepository>> EXTERNAL_ANNOTATION_REPOSITORY
+            = new Key<>("annotationDatabase");
+
     private final LintClient mClient;
     private final Project mProject;
     private Map<File, EcjSourceFile> mSourceUnits;
     @Deprecated private Map<String, TypeDeclaration> mTypeUnits;
     private Parser mParser;
     protected EcjResult mEcjResult;
-    private EcjPsiJavaEvaluator mResolver;
+    private NewJavaEvaluator mResolver;
+    private LintCoreEnvironment mLintCoreEnvironment;
+    private UastContext mUastContext;
 
     public EcjParser(@NonNull LintCliClient client, @Nullable Project project) {
         mClient = client;
@@ -178,8 +193,23 @@ public class EcjParser extends JavaParser {
 
     @NonNull
     @Override
-    public EcjPsiJavaEvaluator getEvaluator() {
+    public NewJavaEvaluator getEvaluator() {
         return mResolver;
+    }
+
+    @Override
+    public MockProject getIdeaProject() {
+        LintCoreEnvironment lintCoreEnvironment = mLintCoreEnvironment;
+        if (lintCoreEnvironment == null) {
+            return null;
+        }
+
+        return lintCoreEnvironment.getProjectEnvironment().getProject();
+    }
+
+    @Override
+    public UastContext getUastContext() {
+        return mUastContext;
     }
 
     /**
@@ -252,8 +282,19 @@ public class EcjParser extends JavaParser {
             return;
         }
 
+        LintCoreEnvironment lintEnvironment = new LintCoreEnvironment(Disposer.newDisposable());
+        mLintCoreEnvironment = lintEnvironment;
+
+        JavaCoreProjectEnvironment projectEnvironment = lintEnvironment.getProjectEnvironment();
+        VirtualFileSystem vfs = StandardFileSystems.local();
+        MockProject ideaProject = projectEnvironment.getProject();
+        ideaProject.setBaseDir(vfs.findFileByPath(mProject.getDir().getAbsolutePath()));
+
+        mUastContext = ServiceManager.getService(ideaProject, UastContext.class);
+
         List<EcjSourceFile> sources = Lists.newArrayListWithExpectedSize(contexts.size());
         mSourceUnits = Maps.newHashMapWithExpectedSize(sources.size());
+
         for (JavaContext context : contexts) {
             String contents = context.getContents();
             if (contents == null) {
@@ -264,10 +305,44 @@ public class EcjParser extends JavaParser {
             sources.add(unit);
             mSourceUnits.put(file, unit);
         }
+
+        for (File sourceDirectory : mClient.getJavaSourceFolders(mProject)) {
+            if (!sourceDirectory.isDirectory()) {
+                continue;
+            }
+            VirtualFile virtualFile = vfs.findFileByPath(sourceDirectory.getAbsolutePath());
+            if (virtualFile != null) {
+                projectEnvironment.addSourcesToClasspath(virtualFile);
+            }
+        }
+
+
         List<String> classPath = computeClassPath(contexts);
+
+        for (String path : classPath) {
+            File file = new File(path);
+            if (file.exists() && file.isFile() && file.getName()
+                    .toLowerCase(Locale.getDefault()).endsWith(".jar")) {
+                projectEnvironment.addJarToClassPath(file);
+            } else {
+                VirtualFile virtualFile = vfs.findFileByPath(path);
+                if (virtualFile != null && virtualFile.isDirectory()) {
+                    projectEnvironment.addSourcesToClasspath(virtualFile);
+                }
+            }
+        }
+
         try {
             mEcjResult = parse(createCompilerOptions(), sources, classPath, mClient);
-            mResolver = new EcjPsiJavaEvaluator(mEcjResult.mPsiManager);
+            PsiManager psiManager = PsiManager.getInstance(ideaProject);
+            psiManager.putUserData(EXTERNAL_ANNOTATION_REPOSITORY,
+                    new AtomicNullableLazyValue<ExternalAnnotationRepository>() {
+                        @Override
+                        protected ExternalAnnotationRepository compute() {
+                            return ExternalAnnotationRepository.get(mClient);
+                        }
+                    });
+            mResolver = new NewJavaEvaluator(psiManager);
 
             if (DEBUG_DUMP_PARSE_ERRORS) {
                 for (CompilationUnitDeclaration unit : mEcjResult.getCompilationUnits()) {
@@ -305,7 +380,6 @@ public class EcjParser extends JavaParser {
         @Nullable private Map<ICompilationUnit, PsiJavaFile> mPsiMap;
         @Nullable private Map<CompilationUnitDeclaration, EcjSourceFile> mUnitToSource;
         @Nullable Map<Binding, CompilationUnitDeclaration> mBindingToUnit;
-        private EcjPsiManager mPsiManager;
 
         public EcjResult(@Nullable INameEnvironment nameEnvironment,
                 @Nullable LookupEnvironment lookupEnvironment,
@@ -320,38 +394,11 @@ public class EcjParser extends JavaParser {
             return mLookupEnvironment;
         }
 
-        public void setPsiManager(@NonNull EcjPsiManager psiManager) {
-            mPsiManager = psiManager;
-        }
-
         @Nullable
         public PsiJavaFile findFile(
                 @NonNull EcjSourceFile sourceUnit,
                 @Nullable String source) {
-            if (mPsiMap != null) {
-                PsiJavaFile file = mPsiMap.get(sourceUnit);
-                if (file != null) {
-                    return file;
-                }
-            } else {
-                // Using weak values to allow map to occasionally refresh
-                mPsiMap = new MapMaker()
-                        .initialCapacity(mSourceToUnit.size())
-                        .weakValues()
-                        .concurrencyLevel(1)
-                        .makeMap();
-
-            }
-
-            CompilationUnitDeclaration unit = getCompilationUnit(sourceUnit);
-            if (unit != null) {
-                PsiJavaFile file = EcjPsiBuilder.create(mPsiManager, unit, sourceUnit);
-                assert mPsiMap != null;
-                mPsiMap.put(sourceUnit, file);
-                return file;
-            }
-
-            return null;
+            throw new UnimplementedLintPsiApiException();
         }
 
         @Nullable
@@ -529,10 +576,7 @@ public class EcjParser extends JavaParser {
         }
 
         LookupEnvironment lookupEnvironment = compiler != null ? compiler.lookupEnvironment : null;
-        EcjResult ecjResult = new EcjResult(environment, lookupEnvironment, outputMap);
-        EcjPsiManager psiManager = new EcjPsiManager(client, ecjResult, options.sourceLevel);
-        ecjResult.setPsiManager(psiManager);
-        return ecjResult;
+        return new EcjResult(environment, lookupEnvironment, outputMap);
     }
 
     @NonNull
@@ -768,12 +812,21 @@ public class EcjParser extends JavaParser {
     }
 
     @Override
-    public void dispose(@NonNull JavaContext context, @NonNull PsiJavaFile compilationUnit) {
+    public void dispose(@NonNull JavaContext context, @NonNull PsiFile compilationUnit) {
         if (mSourceUnits != null) {
             mSourceUnits.remove(context.file);
         }
 
         // We can't delete the AST since it's needed for type resolution etc
+    }
+
+    @Override
+    public void dispose(@NonNull JavaContext context, @NonNull UFile compilationUnit) {
+        if (mSourceUnits != null) {
+            mSourceUnits.remove(context.file);
+        }
+
+        // We can't delete the UFile since it's needed for type resolution etc
     }
 
     @Override
@@ -820,6 +873,13 @@ public class EcjParser extends JavaParser {
         if (mEcjResult != null) {
             mEcjResult.dispose();
             mEcjResult = null;
+        }
+
+        LintCoreEnvironment lintCoreEnvironment = mLintCoreEnvironment;
+        mLintCoreEnvironment = null;
+        mUastContext = null;
+        if (lintCoreEnvironment != null) {
+            lintCoreEnvironment.dispose();
         }
 
         mSourceUnits = null;

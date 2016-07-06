@@ -36,7 +36,7 @@ import com.android.builder.model.ProductFlavorContainer;
 import com.android.builder.model.SourceProviderContainer;
 import com.android.tools.lint.client.api.JavaEvaluator;
 import com.android.tools.lint.detector.api.Category;
-import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
+import com.android.tools.lint.detector.api.Detector;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
@@ -49,6 +49,7 @@ import com.android.utils.SdkUtils;
 import com.google.common.collect.Maps;
 import com.intellij.psi.PsiClass;
 
+import org.jetbrains.uast.UClass;
 import org.w3c.dom.Element;
 
 import java.io.File;
@@ -62,7 +63,7 @@ import java.util.Map;
  * Checks for missing manifest registrations for activities, services etc
  * and also makes sure that they are registered with the correct tag
  */
-public class RegistrationDetector extends LayoutDetector implements JavaPsiScanner {
+public class RegistrationDetector extends LayoutDetector implements Detector.UastScanner {
     /** Unregistered activities and services */
     public static final Issue ISSUE = Issue.create(
             "Registered", //$NON-NLS-1$
@@ -142,7 +143,7 @@ public class RegistrationDetector extends LayoutDetector implements JavaPsiScann
         return className;
     }
 
-    // ---- Implements JavaScanner ----
+    // ---- Implements UastScanner ----
 
     @Nullable
     @Override
@@ -156,20 +157,19 @@ public class RegistrationDetector extends LayoutDetector implements JavaPsiScann
     }
 
     @Override
-    public void checkClass(@NonNull JavaContext context, @NonNull PsiClass cls) {
+    public void checkClass(@NonNull JavaContext context, @NonNull UClass cls) {
         if (cls.getName() == null) {
             // anonymous class; can't be registered
             return;
         }
 
-        JavaEvaluator evaluator = context.getEvaluator();
-        if (evaluator.isAbstract(cls) || evaluator.isPrivate(cls)) {
+        if (JavaEvaluator.isAbstract(cls) || JavaEvaluator.isPrivate(cls)) {
             // Abstract classes do not need to be registered, and
             // private classes are clearly not intended to be registered
             return;
         }
 
-        String rightTag = getTag(evaluator, cls);
+        String rightTag = getTag(cls);
         if (rightTag == null) {
             // some non-registered Context, such as a BackupAgent
             return;
@@ -182,7 +182,7 @@ public class RegistrationDetector extends LayoutDetector implements JavaPsiScann
             String framework = mManifestRegistrations.get(className);
             if (framework == null) {
                 reportMissing(context, cls, className, rightTag);
-            } else if (!evaluator.extendsClass(cls, framework, false)) {
+            } else if (!JavaEvaluator.isSubClassOf(cls, framework, false)) {
                 reportWrongTag(context, cls, rightTag, className, framework);
             }
         } else {
@@ -261,10 +261,10 @@ public class RegistrationDetector extends LayoutDetector implements JavaPsiScann
         context.report(ISSUE, node, location, message);
     }
 
-    private static String getTag(@NonNull JavaEvaluator evaluator, @NonNull PsiClass cls) {
+    private static String getTag(@NonNull PsiClass cls) {
         String tag = null;
         for (String s : sClasses) {
-            if (evaluator.extendsClass(cls, s, false)) {
+            if (JavaEvaluator.isSubClassOf(cls, s, false)) {
                 tag = classToTag(s);
                 break;
             }

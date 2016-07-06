@@ -19,9 +19,10 @@ package com.android.tools.lint.checks;
 import static com.android.SdkConstants.CLASS_CONTEXT;
 import static com.android.SdkConstants.CLASS_FRAGMENT;
 import static com.android.SdkConstants.CLASS_VIEW;
+import static com.android.tools.lint.client.api.JavaEvaluator.isSubClassOf;
 
 import com.android.annotations.NonNull;
-import com.android.tools.lint.client.api.JavaEvaluator;
+import com.android.annotations.Nullable;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Detector;
 import com.android.tools.lint.detector.api.Implementation;
@@ -30,7 +31,6 @@ import com.android.tools.lint.detector.api.JavaContext;
 import com.android.tools.lint.detector.api.Location;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
-import com.intellij.psi.JavaElementVisitor;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiClassType;
 import com.intellij.psi.PsiElement;
@@ -39,13 +39,18 @@ import com.intellij.psi.PsiModifier;
 import com.intellij.psi.PsiModifierList;
 import com.intellij.psi.PsiType;
 
+import org.jetbrains.uast.UField;
+import org.jetbrains.uast.UVariable;
+import org.jetbrains.uast.visitor.AbstractUastVisitor;
+import org.jetbrains.uast.visitor.UastVisitor;
+
 import java.util.Collections;
 import java.util.List;
 
 /**
  * Looks for leaks via static fields
  */
-public class LeakDetector extends Detector implements Detector.JavaPsiScanner {
+public class LeakDetector extends Detector implements Detector.UastScanner {
     /** Leaking data via static fields */
     public static final Issue ISSUE = Issue.create(
             "StaticFieldLeak", //$NON-NLS-1$
@@ -71,20 +76,28 @@ public class LeakDetector extends Detector implements Detector.JavaPsiScanner {
         return Collections.<Class<? extends PsiElement>>singletonList(PsiField.class);
     }
 
+    @Nullable
     @Override
-    public JavaElementVisitor createPsiVisitor(@NonNull JavaContext context) {
+    public UastVisitor createUastVisitor(@NonNull JavaContext context) {
         return new FieldChecker(context);
     }
 
-    private static class FieldChecker extends JavaElementVisitor {
+    private static class FieldChecker extends AbstractUastVisitor {
         private final JavaContext mContext;
 
-        public FieldChecker(JavaContext context) {
+        private FieldChecker(JavaContext context) {
             mContext = context;
         }
 
         @Override
-        public void visitField(PsiField field) {
+        public boolean visitVariable(UVariable node) {
+            if (node instanceof UField) {
+                checkField((UField) node);
+            }
+            return super.visitVariable(node);
+        }
+
+        private void checkField(UField field) {
             PsiModifierList modifierList = field.getModifierList();
             if (modifierList == null || !modifierList.hasModifierProperty(PsiModifier.STATIC)) {
                 return;
@@ -104,7 +117,7 @@ public class LeakDetector extends Detector implements Detector.JavaPsiScanner {
                 return;
             }
             if (fqn.startsWith("android.")) {
-                if (isLeakCandidate(cls, mContext.getEvaluator())) {
+                if (isLeakCandidate(cls)) {
                     String message = "Do not place Android context classes in static fields; "
                             + "this is a memory leak (and also breaks Instant Run)";
                     report(field, modifierList, message);
@@ -134,7 +147,7 @@ public class LeakDetector extends Detector implements Detector.JavaPsiScanner {
                         continue;
                     }
                     if (fqn.startsWith("android.")) {
-                        if (isLeakCandidate(innerCls, mContext.getEvaluator())) {
+                        if (isLeakCandidate(innerCls)) {
                             String message =
                                     "Do not place Android context classes in static fields "
                                             + "(static reference to `"
@@ -158,11 +171,9 @@ public class LeakDetector extends Detector implements Detector.JavaPsiScanner {
         }
     }
 
-    private static boolean isLeakCandidate(
-            @NonNull PsiClass cls,
-            @NonNull JavaEvaluator evaluator) {
-        return evaluator.extendsClass(cls, CLASS_CONTEXT, false)
-                || evaluator.extendsClass(cls, CLASS_VIEW, false)
-                || evaluator.extendsClass(cls, CLASS_FRAGMENT, false);
+    private static boolean isLeakCandidate(@NonNull PsiClass cls) {
+        return isSubClassOf(cls, CLASS_CONTEXT, false)
+                || isSubClassOf(cls, CLASS_VIEW, false)
+                || isSubClassOf(cls, CLASS_FRAGMENT, false);
     }
 }

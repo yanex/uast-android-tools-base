@@ -18,20 +18,19 @@ package com.android.tools.lint.checks;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
+import com.android.tools.lint.client.api.JavaEvaluator;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Detector;
-import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
 import com.android.tools.lint.detector.api.Location;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
-import com.intellij.psi.JavaElementVisitor;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiMethod;
-import com.intellij.psi.PsiMethodCallExpression;
-import com.intellij.psi.PsiReferenceExpression;
+
+import org.jetbrains.uast.UCallExpression;
+import org.jetbrains.uast.UMethod;
+import org.jetbrains.uast.visitor.UastVisitor;
 
 import java.util.Arrays;
 import java.util.List;
@@ -40,7 +39,7 @@ import java.util.List;
  * Looks for usages of {@link Math} methods which can be replaced with
  * {@code android.util.FloatMath} methods to avoid casting.
  */
-public class MathDetector extends Detector implements JavaPsiScanner {
+public class MathDetector extends Detector implements Detector.UastScanner {
     /** The main issue discovered by this detector */
     public static final Issue ISSUE = Issue.create(
             "FloatMath", //$NON-NLS-1$
@@ -81,18 +80,15 @@ public class MathDetector extends Detector implements JavaPsiScanner {
     }
 
     @Override
-    public void visitMethod(@NonNull JavaContext context, @Nullable JavaElementVisitor visitor,
-            @NonNull PsiMethodCallExpression call, @NonNull PsiMethod method) {
-        if (context.getEvaluator().isMemberInClass(method, "android.util.FloatMath")
-                    && context.getProject().getMinSdk() >= 8) {
+    public void visitMethod(@NonNull JavaContext context, @Nullable UastVisitor visitor,
+            @NonNull UCallExpression call, @NonNull UMethod method) {
+        if (JavaEvaluator.isMemberInClass(method, "android.util.FloatMath")
+                && context.getProject().getMinSdk() >= 8) {
             String message = String.format(
                     "Use `java.lang.Math#%1$s` instead of `android.util.FloatMath#%1$s()` " +
                             "since it is faster as of API 8", method.getName());
-            PsiReferenceExpression expression = call.getMethodExpression();
-            PsiElement operand = expression.getQualifier();
-            Location location = operand != null && expression.getReferenceNameElement() != null
-                    ? context.getRangeLocation(operand, 0, expression.getReferenceNameElement(), 0)
-                    : context.getLocation(call);
+            
+            Location location = context.getLocation(call.getMethodIdentifier());
             context.report(ISSUE, call, location, message);
         }
     }

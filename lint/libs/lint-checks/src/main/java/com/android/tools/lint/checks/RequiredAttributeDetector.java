@@ -45,7 +45,6 @@ import static com.android.SdkConstants.VIEW_MERGE;
 import static com.android.resources.ResourceFolderType.LAYOUT;
 import static com.android.resources.ResourceFolderType.VALUES;
 import static com.android.tools.lint.detector.api.LintUtils.getLayoutName;
-import static com.android.tools.lint.detector.api.LintUtils.isNullLiteral;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
@@ -55,7 +54,7 @@ import com.android.resources.ResourceFolderType;
 import com.android.resources.ResourceType;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Context;
-import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
+import com.android.tools.lint.detector.api.Detector;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
@@ -66,11 +65,12 @@ import com.android.tools.lint.detector.api.Severity;
 import com.android.tools.lint.detector.api.XmlContext;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import com.intellij.psi.JavaElementVisitor;
-import com.intellij.psi.PsiExpression;
-import com.intellij.psi.PsiMethod;
-import com.intellij.psi.PsiMethodCallExpression;
 
+import org.jetbrains.uast.UCallExpression;
+import org.jetbrains.uast.UExpression;
+import org.jetbrains.uast.UMethod;
+import org.jetbrains.uast.UastLiteralUtils;
+import org.jetbrains.uast.visitor.UastVisitor;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 
@@ -85,7 +85,7 @@ import java.util.Set;
 /**
  * Ensures that layout width and height attributes are specified
  */
-public class RequiredAttributeDetector extends LayoutDetector implements JavaPsiScanner {
+public class RequiredAttributeDetector extends LayoutDetector implements Detector.UastScanner {
     /** The main issue discovered by this detector */
     public static final Issue ISSUE = Issue.create(
             "RequiredSize", //$NON-NLS-1$
@@ -564,7 +564,7 @@ public class RequiredAttributeDetector extends LayoutDetector implements JavaPsi
         }
     }
 
-    // ---- Implements JavaScanner ----
+    // ---- Implements UastScanner ----
 
     @Override
     @Nullable
@@ -573,18 +573,18 @@ public class RequiredAttributeDetector extends LayoutDetector implements JavaPsi
     }
 
     @Override
-    public void visitMethod(@NonNull JavaContext context, @Nullable JavaElementVisitor visitor,
-            @NonNull PsiMethodCallExpression call, @NonNull PsiMethod method) {
+    public void visitMethod(@NonNull JavaContext context, @Nullable UastVisitor visitor,
+            @NonNull UCallExpression call, @NonNull UMethod method) {
         // Handle
         //    View#inflate(Context context, int resource, ViewGroup root)
         //    LayoutInflater#inflate(int resource, ViewGroup root)
         //    LayoutInflater#inflate(int resource, ViewGroup root, boolean attachToRoot)
-        PsiExpression[] args = call.getArgumentList().getExpressions();
+        List<UExpression> args = call.getValueArguments();
 
         String layout = null;
         int index = 0;
-        ResourceEvaluator evaluator = new ResourceEvaluator(context.getEvaluator());
-        for (PsiExpression expression : args) {
+        ResourceEvaluator evaluator = new ResourceEvaluator(context);
+        for (UExpression expression : args) {
             ResourceUrl url = evaluator.getResource(expression);
             if (url != null && url.type == ResourceType.LAYOUT) {
                 layout = url.toString();
@@ -601,9 +601,9 @@ public class RequiredAttributeDetector extends LayoutDetector implements JavaPsi
         // In all the applicable signatures, the view root argument is immediately after
         // the layout resource id.
         int viewRootPos = index + 1;
-        if (viewRootPos < args.length) {
-            PsiExpression viewRoot = args[viewRootPos];
-            if (isNullLiteral(viewRoot)) {
+        if (viewRootPos < args.size()) {
+            UExpression viewRoot = args.get(viewRootPos);
+            if (UastLiteralUtils.isNullLiteral(viewRoot)) {
                 // Yep, this one inflates the given view with a null parent:
                 // Tag it as such. For now just use the include data structure since
                 // it has the same net effect

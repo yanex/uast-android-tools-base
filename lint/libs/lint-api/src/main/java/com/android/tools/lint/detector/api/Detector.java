@@ -31,8 +31,14 @@ import com.intellij.psi.PsiJavaCodeReferenceElement;
 import com.intellij.psi.PsiMethod;
 import com.intellij.psi.PsiMethodCallExpression;
 import com.intellij.psi.PsiNewExpression;
-
 import com.intellij.psi.PsiTypeParameter;
+
+import org.jetbrains.uast.UCallExpression;
+import org.jetbrains.uast.UClass;
+import org.jetbrains.uast.UElement;
+import org.jetbrains.uast.UMethod;
+import org.jetbrains.uast.expressions.UReferenceExpression;
+import org.jetbrains.uast.visitor.UastVisitor;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.MethodInsnNode;
@@ -652,6 +658,238 @@ public abstract class Detector {
         void checkClass(@NonNull JavaContext context, @NonNull PsiClass declaration);
     }
 
+    public interface UastScanner {
+        /**
+         * Create a parse tree visitor to process the parse tree. All
+         * {@link JavaScanner} detectors must provide a visitor, unless they
+         * either return true from {@link #appliesToResourceRefs()} or return
+         * non null from {@link #getApplicableMethodNames()}.
+         * <p>
+         * If you return specific AST node types from
+         * {@link #getApplicablePsiTypes()}, then the visitor will <b>only</b>
+         * be called for the specific requested node types. This is more
+         * efficient, since it allows many detectors that apply to only a small
+         * part of the AST (such as method call nodes) to share iteration of the
+         * majority of the parse tree.
+         * <p>
+         * If you return null from {@link #getApplicablePsiTypes()}, then your
+         * visitor will be called from the top and all node types visited.
+         * <p>
+         * Note that a new visitor is created for each separate compilation
+         * unit, so you can store per file state in the visitor.
+         * <p>
+         * <b>
+         * NOTE: Your visitor should <b>NOT</b> extend JavaRecursiveElementVisitor.
+         * Your visitor should only visit the current node type; the infrastructure
+         * will do the recursion. (Lint's unit test infrastructure will check and
+         * enforce this restriction.)
+         * </b>
+         *
+         * @param context the {@link Context} for the file being analyzed
+         * @return a visitor, or null.
+         */
+        @Nullable
+        UastVisitor createUastVisitor(@NonNull JavaContext context);
+
+        /**
+         * Return the types of AST nodes that the visitor returned from
+         * {@link #createJavaVisitor(JavaContext)} should visit. See the
+         * documentation for {@link #createJavaVisitor(JavaContext)} for details
+         * on how the shared visitor is used.
+         * <p>
+         * If you return null from this method, then the visitor will process
+         * the full tree instead.
+         * <p>
+         * Note that for the shared visitor, the return codes from the visit
+         * methods are ignored: returning true will <b>not</b> prune iteration
+         * of the subtree, since there may be other node types interested in the
+         * children. If you need to ensure that your visitor only processes a
+         * part of the tree, use a full visitor instead. See the
+         * OverdrawDetector implementation for an example of this.
+         *
+         * @return the list of applicable node types (AST node classes), or null
+         */
+        @Nullable
+        List<Class<? extends UElement>> getApplicableUastTypes();
+
+        @Nullable
+        List<Class<? extends PsiElement>> getApplicablePsiTypes();
+        
+        /**
+         * Return the list of method names this detector is interested in, or
+         * null. If this method returns non-null, then any AST nodes that match
+         * a method call in the list will be passed to the
+         * {@link #visitMethod(JavaContext, JavaElementVisitor, PsiMethodCallExpression, PsiMethod)}
+         * method for processing. The visitor created by
+         * {@link #createPsiVisitor(JavaContext)} is also passed to that
+         * method, although it can be null.
+         * <p>
+         * This makes it easy to write detectors that focus on some fixed calls.
+         * For example, the StringFormatDetector uses this mechanism to look for
+         * "format" calls, and when found it looks around (using the AST's
+         * {@link PsiElement#getParent()} method) to see if it's called on
+         * a String class instance, and if so do its normal processing. Note
+         * that since it doesn't need to do any other AST processing, that
+         * detector does not actually supply a visitor.
+         *
+         * @return a set of applicable method names, or null.
+         */
+        @Nullable
+        List<String> getApplicableMethodNames();
+
+        /**
+         * Method invoked for any method calls found that matches any names
+         * returned by {@link #getApplicableMethodNames()}. This also passes
+         * back the visitor that was created by
+         * {@link #createJavaVisitor(JavaContext)}, but a visitor is not
+         * required. It is intended for detectors that need to do additional AST
+         * processing, but also want the convenience of not having to look for
+         * method names on their own.
+         *
+         * @param context the context of the lint request
+         * @param visitor the visitor created from
+         *            {@link #createPsiVisitor(JavaContext)}, or null
+         * @param node the {@link PsiMethodCallExpression} node for the invoked method
+         * @param method the {@link PsiMethod} being called
+         */
+        void visitMethod(
+                @NonNull JavaContext context,
+                @Nullable UastVisitor visitor,
+                @NonNull UCallExpression node,
+                @NonNull UMethod method);
+
+        /**
+         * Return the list of constructor types this detector is interested in, or
+         * null. If this method returns non-null, then any AST nodes that match
+         * a constructor call in the list will be passed to the
+         * {@link #visitConstructor(JavaContext, JavaElementVisitor, PsiNewExpression, PsiMethod)}
+         * method for processing. The visitor created by
+         * {@link #createJavaVisitor(JavaContext)} is also passed to that
+         * method, although it can be null.
+         * <p>
+         * This makes it easy to write detectors that focus on some fixed constructors.
+         *
+         * @return a set of applicable fully qualified types, or null.
+         */
+        @Nullable
+        List<String> getApplicableConstructorTypes();
+
+        /**
+         * Method invoked for any constructor calls found that matches any names
+         * returned by {@link #getApplicableConstructorTypes()}. This also passes
+         * back the visitor that was created by
+         * {@link #createPsiVisitor(JavaContext)}, but a visitor is not
+         * required. It is intended for detectors that need to do additional AST
+         * processing, but also want the convenience of not having to look for
+         * method names on their own.
+         *
+         * @param context the context of the lint request
+         * @param visitor the visitor created from
+         *            {@link #createPsiVisitor(JavaContext)}, or null
+         * @param node the {@link PsiNewExpression} node for the invoked method
+         * @param constructor the called constructor method
+         */
+        void visitConstructor(
+                @NonNull JavaContext context,
+                @Nullable UastVisitor visitor,
+                @NonNull UCallExpression node,
+                @NonNull UMethod constructor);
+
+        /**
+         * Return the list of reference names types this detector is interested in, or null. If this
+         * method returns non-null, then any AST elements that match a reference in the list will be
+         * passed to the {@link #visitReference(JavaContext, JavaElementVisitor,
+         * PsiJavaCodeReferenceElement, PsiElement)} method for processing. The visitor created by
+         * {@link #createJavaVisitor(JavaContext)} is also passed to that method, although it can be
+         * null. <p> This makes it easy to write detectors that focus on some fixed references.
+         *
+         * @return a set of applicable reference names, or null.
+         */
+        @Nullable
+        List<String> getApplicableReferenceNames();
+
+        /**
+         * Method invoked for any references found that matches any names returned by {@link
+         * #getApplicableReferenceNames()}. This also passes back the visitor that was created by
+         * {@link #createPsiVisitor(JavaContext)}, but a visitor is not required. It is intended for
+         * detectors that need to do additional AST processing, but also want the convenience of not
+         * having to look for method names on their own.
+         *
+         * @param context    the context of the lint request
+         * @param visitor    the visitor created from {@link #createPsiVisitor(JavaContext)}, or
+         *                   null
+         * @param reference  the {@link PsiJavaCodeReferenceElement} element
+         * @param referenced the referenced element
+         */
+        void visitReference(
+                @NonNull JavaContext context,
+                @Nullable UastVisitor visitor,
+                @NonNull UReferenceExpression reference,
+                @NonNull PsiElement referenced);
+
+        /**
+         * Returns whether this detector cares about Android resource references
+         * (such as {@code R.layout.main} or {@code R.string.app_name}). If it
+         * does, then the visitor will look for these patterns, and if found, it
+         * will invoke {@link #visitResourceReference} passing the resource type
+         * and resource name. It also passes the visitor, if any, that was
+         * created by {@link #createJavaVisitor(JavaContext)}, such that a
+         * detector can do more than just look for resources.
+         *
+         * @return true if this detector wants to be notified of R resource
+         *         identifiers found in the code.
+         */
+        boolean appliesToResourceRefs();
+
+        /**
+         * Called for any resource references (such as {@code R.layout.main}
+         * found in Java code, provided this detector returned {@code true} from
+         * {@link #appliesToResourceRefs()}.
+         *
+         * @param context the lint scanning context
+         * @param visitor the visitor created from
+         *            {@link #createPsiVisitor(JavaContext)}, or null
+         * @param node the variable reference for the resource
+         * @param type the resource type, such as "layout" or "string"
+         * @param name the resource name, such as "main" from
+         *            {@code R.layout.main}
+         * @param isFramework whether the resource is a framework resource
+         *            (android.R) or a local project resource (R)
+         */
+        void visitResourceReference(
+                @NonNull JavaContext context,
+                @Nullable UastVisitor visitor,
+                @NonNull UElement node,
+                @NonNull ResourceType type,
+                @NonNull String name,
+                boolean isFramework);
+
+        /**
+         * Returns a list of fully qualified names for super classes that this
+         * detector cares about. If not null, this detector will <b>only</b> be called
+         * if the current class is a subclass of one of the specified superclasses.
+         *
+         * @return a list of fully qualified names
+         */
+        @Nullable
+        List<String> applicableSuperClasses();
+
+        /**
+         * Called for each class that extends one of the super classes specified with
+         * {@link #applicableSuperClasses()}.
+         * <p>
+         * Note: This method will not be called for {@link PsiTypeParameter} classes. These
+         * aren't really classes in the sense most lint detectors think of them, so these
+         * are excluded to avoid having lint checks that don't defensively code for these
+         * accidentally report errors on type parameters. If you really need to check these,
+         * use {@link #getApplicablePsiTypes} with {@code PsiTypeParameter.class} instead.
+         *
+         * @param context the lint scanning context
+         * @param declaration the class declaration node, or null for anonymous classes
+         */
+        void checkClass(@NonNull JavaContext context, @NonNull UClass declaration);
+    }
+
     /** Specialized interface for detectors that scan Java class files */
     public interface ClassScanner  {
         /**
@@ -1160,6 +1398,51 @@ public abstract class Detector {
         return true;
     }
 
+    // ---- Dummy implementation to make implementing UastScanner easier: ----
+
+    public void checkClass(@NonNull JavaContext context, @NonNull UClass declaration) {
+    }
+    
+    public void visitReference(
+            @NonNull JavaContext context,
+            @Nullable UastVisitor visitor,
+            @NonNull UReferenceExpression reference,
+            @NonNull PsiElement referenced) {
+    }
+
+    public void visitConstructor(
+            @NonNull JavaContext context,
+            @Nullable UastVisitor visitor,
+            @NonNull UCallExpression node,
+            @NonNull UMethod constructor) {
+    }
+
+    public void visitMethod(
+            @NonNull JavaContext context,
+            @Nullable UastVisitor visitor,
+            @NonNull UCallExpression node,
+            @NonNull UMethod method) {
+    }
+
+    @Nullable
+    public UastVisitor createUastVisitor(@NonNull JavaContext context) {
+        return null;
+    }
+    
+    @Nullable
+    public List<Class<? extends UElement>> getApplicableUastTypes() {
+        return null;
+    }
+
+    public void visitResourceReference(
+            @NonNull JavaContext context,
+            @Nullable UastVisitor visitor,
+            @NonNull UElement node,
+            @NonNull ResourceType type,
+            @NonNull String name,
+            boolean isFramework) {
+    }
+    
     // ---- Dummy implementation to make implementing JavaPsiScanner easier: ----
 
     @Nullable

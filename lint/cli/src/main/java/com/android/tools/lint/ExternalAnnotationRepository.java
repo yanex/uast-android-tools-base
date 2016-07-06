@@ -24,7 +24,7 @@ import static com.android.SdkConstants.VALUE_FALSE;
 import static com.android.SdkConstants.VALUE_TRUE;
 import static com.android.tools.lint.checks.SupportAnnotationDetector.CHECK_RESULT_ANNOTATION;
 import static com.android.tools.lint.checks.SupportAnnotationDetector.PERMISSION_ANNOTATION;
-import static com.android.tools.lint.psi.EcjPsiManager.getTypeName;
+import static com.android.tools.lint.psiNew.NewJavaEvaluator.getTypeName;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
@@ -43,11 +43,11 @@ import com.android.tools.lint.client.api.JavaParser.TypeDescriptor;
 import com.android.tools.lint.client.api.LintClient;
 import com.android.tools.lint.detector.api.LintUtils;
 import com.android.tools.lint.detector.api.Project;
-import com.android.tools.lint.psi.ExternalPsiAnnotation;
-import com.android.tools.lint.psi.ExternalPsiAnnotationLiteralMemberValue;
-import com.android.tools.lint.psi.ExternalPsiArrayInitializerMemberValue;
-import com.android.tools.lint.psi.ExternalPsiNameValuePair;
-import com.android.tools.lint.psi.ExternalPsiReferenceExpressionMemberValue;
+import com.android.tools.lint.psiNew.ExternalPsiAnnotation;
+import com.android.tools.lint.psiNew.ExternalPsiAnnotationLiteralMemberValue;
+import com.android.tools.lint.psiNew.ExternalPsiArrayInitializerMemberValue;
+import com.android.tools.lint.psiNew.ExternalPsiNameValuePair;
+import com.android.tools.lint.psiNew.ExternalPsiReferenceExpressionMemberValue;
 import com.android.utils.XmlUtils;
 import com.google.common.base.Charsets;
 import com.google.common.base.Splitter;
@@ -62,10 +62,13 @@ import com.google.common.io.Files;
 import com.intellij.psi.PsiAnnotation;
 import com.intellij.psi.PsiAnnotationMemberValue;
 import com.intellij.psi.PsiArrayInitializerMemberValue;
+import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiField;
 import com.intellij.psi.PsiLiteral;
+import com.intellij.psi.PsiMethod;
 import com.intellij.psi.PsiNameValuePair;
+import com.intellij.psi.PsiParameterList;
 import com.intellij.psi.PsiReferenceExpression;
 
 import org.eclipse.jdt.internal.compiler.lookup.FieldBinding;
@@ -292,6 +295,18 @@ public class ExternalAnnotationRepository {
         return null;
     }
 
+    @NonNull
+    public Collection<PsiAnnotation> getAnnotations(@NonNull PsiClass cls) {
+        for (AnnotationsDatabase database : mDatabases) {
+            Collection<PsiAnnotation> annotations = database.getAnnotations(cls);
+            if (annotations != null) {
+                return annotations;
+            }
+        }
+
+        return Collections.emptyList();
+    }
+
     @Nullable
     public Collection<PsiAnnotation> getAnnotations(@NonNull MethodBinding method) {
         for (AnnotationsDatabase database : mDatabases) {
@@ -302,6 +317,18 @@ public class ExternalAnnotationRepository {
         }
 
         return null;
+    }
+
+    @NonNull
+    public Collection<PsiAnnotation> getAnnotations(@NonNull PsiMethod method) {
+        for (AnnotationsDatabase database : mDatabases) {
+            Collection<PsiAnnotation> annotations = database.getAnnotations(method);
+            if (annotations != null) {
+                return annotations;
+            }
+        }
+
+        return Collections.emptyList();
     }
 
     @Nullable
@@ -316,6 +343,20 @@ public class ExternalAnnotationRepository {
         }
 
         return null;
+    }
+
+    @NonNull
+    public Collection<PsiAnnotation> getParameterAnnotations(@NonNull PsiMethod method,
+            int parameterIndex) {
+        for (AnnotationsDatabase database : mDatabases) {
+            Collection<PsiAnnotation> annotations = database.getAnnotations(method,
+                    parameterIndex);
+            if (annotations != null) {
+                return annotations;
+            }
+        }
+
+        return Collections.emptyList();
     }
 
     @Nullable
@@ -708,6 +749,15 @@ public class ExternalAnnotationRepository {
             return c.psiAnnotations;
         }
 
+        public Collection<PsiAnnotation> getAnnotations(@NonNull PsiClass cls) {
+            ClassInfo c = findClass(cls);
+            if (c == null) {
+                return null;
+            }
+
+            return c.psiAnnotations;
+        }
+
         public Collection<PsiAnnotation> getAnnotations(@NonNull MethodBinding method) {
             MethodInfo m = findMethod(method);
             if (m == null) {
@@ -716,6 +766,13 @@ public class ExternalAnnotationRepository {
             return m.psiAnnotations;
         }
 
+        public Collection<PsiAnnotation> getAnnotations(@NonNull PsiMethod method) {
+            MethodInfo m = findMethod(method);
+            if (m == null) {
+                return null;
+            }
+            return m.psiAnnotations;
+        }
 
         public Collection<PsiAnnotation> getAnnotations(@NonNull MethodBinding method,
                 int parameterIndex) {
@@ -729,6 +786,20 @@ public class ExternalAnnotationRepository {
             }
 
             return null;
+        }
+
+        public Collection<PsiAnnotation> getAnnotations(@NonNull PsiMethod method,
+                int parameterIndex) {
+            MethodInfo m = findMethod(method);
+            if (m == null) {
+                return null;
+            }
+
+            if (m.psiParameterAnnotations != null) {
+                return m.psiParameterAnnotations.get(parameterIndex);
+            }
+
+            return Collections.emptyList();
         }
 
         public Collection<PsiAnnotation> getAnnotations(@NonNull FieldBinding field) {
@@ -916,6 +987,14 @@ public class ExternalAnnotationRepository {
         }
 
         @Nullable
+        private ClassInfo findClass(@Nullable PsiClass cls) {
+            if (cls == null) {
+                return null;
+            }
+            return mClassMap.get(cls.getQualifiedName());
+        }
+
+        @Nullable
         private ClassInfo findClass(@Nullable ReferenceBinding cls) {
             if (cls == null || cls.compoundName == null) {
                 return null;
@@ -976,6 +1055,90 @@ public class ExternalAnnotationRepository {
                                 || !isVarArgsMatch(signature, index, parameterType, length)) {
                                     matches = false;
                                     break;
+                        }
+                    }
+                    index += length;
+                    if (i < n - 1) {
+                        if (index == signature.length()) {
+                            matches = false;
+                            break;
+                        } else if (signature.charAt(index) == '<') {
+                            // Skip raw types
+                            int balance = 1;
+                            for (int j = index + 1, max = signature.length(); j < max; j++) {
+                                char ch = signature.charAt(j);
+                                if (ch == '<') {
+                                    balance++;
+                                } else if (ch == '>') {
+                                    balance--;
+                                    if (balance == 0) {
+                                        index = j + 1;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (balance > 0) {
+                                matches = false;
+                                break;
+                            }
+                        } else if (signature.charAt(index) != ',') {
+                            matches = false;
+                            break;
+                        }
+                    }
+                    index++; // skip comma
+                }
+
+                if (matches) {
+                    return m;
+                }
+            }
+
+            return null;
+        }
+
+        @Nullable
+        private MethodInfo findMethod(@NonNull PsiMethod method) {
+            ClassInfo c = findClass(method.getContainingClass());
+            if (c == null) {
+                return null;
+            }
+            if (c.methods == null) {
+                return null;
+            }
+
+            // TODO: Instead of making a string, consider iterating through list and comparing
+            Collection<MethodInfo> methods = c.methods.get(method.getName());
+            if (methods == null) {
+                return null;
+            }
+            boolean constructor = method.isConstructor();
+            for (MethodInfo m : methods) {
+                if (constructor != m.constructor) {
+                    continue;
+                }
+                // Check parameter types
+                // TODO: Perform faster parameter check! This is inefficient
+                // Stash parameter count such that I can quickly compare the two
+                String signature = m.parameters;
+                int index = 0;
+                boolean matches = true;
+                PsiParameterList parameterList = method.getParameterList();
+                for (int i = 0, n = parameterList.getParametersCount(); i < n; i++) {
+                    String parameterType = parameterList.getParameters()[i]
+                            .getType().getCanonicalText();
+                    int length = parameterType.indexOf('<');
+                    if (length == -1) {
+                        length = parameterType.length();
+                    }
+                    if (!signature.regionMatches(false, index, parameterType, 0, length)) {
+                        // Check if we have a varargs match: x... vs x[]
+                        if (length <= 3 || index <= 3 || ((parameterType.charAt(length - 1) != '.')
+                                && (signature.length() < index + length
+                                || signature.charAt(index + length - 1) != '.'))
+                                || !isVarArgsMatch(signature, index, parameterType, length)) {
+                            matches = false;
+                            break;
                         }
                     }
                     index += length;

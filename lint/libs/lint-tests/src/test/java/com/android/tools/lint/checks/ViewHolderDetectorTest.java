@@ -29,7 +29,7 @@ public class ViewHolderDetectorTest extends AbstractCheckTest {
         assertEquals(""
                 + "src/test/pkg/ViewHolderTest.java:42: Warning: Unconditional layout inflation from view adapter: Should use View Holder pattern (use recycled view passed into this method as the second parameter) for smoother scrolling [ViewHolder]\n"
                 + "            convertView = mInflater.inflate(R.layout.your_layout, null);\n"
-                + "                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"
+                + "                                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"
                 + "0 errors, 1 warnings\n",
 
                 lintProject(

@@ -21,26 +21,28 @@ import static com.android.SdkConstants.CLASS_VIEWGROUP;
 import static com.android.tools.lint.client.api.JavaParser.TYPE_INT;
 
 import com.android.annotations.NonNull;
+import com.android.annotations.Nullable;
 import com.android.tools.lint.client.api.JavaEvaluator;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Detector;
-import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
 import com.google.common.collect.Lists;
-import com.intellij.psi.JavaElementVisitor;
-import com.intellij.psi.JavaRecursiveElementVisitor;
-import com.intellij.psi.PsiConditionalExpression;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiIfStatement;
 import com.intellij.psi.PsiMethod;
-import com.intellij.psi.PsiMethodCallExpression;
-import com.intellij.psi.PsiReferenceExpression;
-import com.intellij.psi.PsiSwitchStatement;
-import com.intellij.psi.util.PsiTreeUtil;
+
+import org.jetbrains.uast.UCallExpression;
+import org.jetbrains.uast.UElement;
+import org.jetbrains.uast.UExpression;
+import org.jetbrains.uast.UIfExpression;
+import org.jetbrains.uast.UMethod;
+import org.jetbrains.uast.USwitchExpression;
+import org.jetbrains.uast.UastUtils;
+import org.jetbrains.uast.util.UastExpressionUtils;
+import org.jetbrains.uast.visitor.AbstractUastVisitor;
+import org.jetbrains.uast.visitor.UastVisitor;
 
 import java.util.Collections;
 import java.util.List;
@@ -48,7 +50,7 @@ import java.util.List;
 /**
  * Looks for ListView scrolling performance: should use view holder pattern
  */
-public class ViewHolderDetector extends Detector implements JavaPsiScanner {
+public class ViewHolderDetector extends Detector implements Detector.UastScanner {
 
     private static final Implementation IMPLEMENTATION = new Implementation(
             ViewHolderDetector.class,
@@ -80,18 +82,19 @@ public class ViewHolderDetector extends Detector implements JavaPsiScanner {
 
     // ---- Implements JavaScanner ----
 
+    @Nullable
     @Override
-    public List<Class<? extends PsiElement>> getApplicablePsiTypes() {
-        return Collections.<Class<? extends PsiElement>>singletonList(PsiMethod.class);
+    public List<Class<? extends UElement>> getApplicableUastTypes() {
+        return Collections.<Class<? extends UElement>>singletonList(UMethod.class);
     }
 
+    @Nullable
     @Override
-    public JavaElementVisitor createPsiVisitor(@NonNull JavaContext context) {
+    public UastVisitor createUastVisitor(@NonNull JavaContext context) {
         return new ViewAdapterVisitor(context);
     }
 
-
-    private static class ViewAdapterVisitor extends JavaElementVisitor {
+    private static class ViewAdapterVisitor extends AbstractUastVisitor {
         private final JavaContext mContext;
 
         public ViewAdapterVisitor(JavaContext context) {
@@ -99,28 +102,28 @@ public class ViewHolderDetector extends Detector implements JavaPsiScanner {
         }
 
         @Override
-        public void visitMethod(PsiMethod method) {
-            if (isViewAdapterMethod(mContext, method)) {
+        public boolean visitMethod(UMethod method) {
+            if (isViewAdapterMethod(method)) {
                 InflationVisitor visitor = new InflationVisitor(mContext);
                 method.accept(visitor);
                 visitor.finish();
             }
+            return super.visitMethod(method);
         }
 
         /**
          * Returns true if this method looks like it's overriding android.widget.Adapter's getView
          * method: getView(int position, View convertView, ViewGroup parent)
          */
-        private static boolean isViewAdapterMethod(JavaContext context, PsiMethod node) {
-            JavaEvaluator evaluator = context.getEvaluator();
-            return GET_VIEW.equals(node.getName()) && evaluator.parametersMatch(node,
-                    TYPE_INT, CLASS_VIEW, CLASS_VIEWGROUP);
+        private static boolean isViewAdapterMethod(PsiMethod node) {
+            return GET_VIEW.equals(node.getName())
+                    && JavaEvaluator.parametersMatch(node, TYPE_INT, CLASS_VIEW, CLASS_VIEWGROUP);
         }
     }
 
-    private static class InflationVisitor extends JavaRecursiveElementVisitor {
+    private static class InflationVisitor extends AbstractUastVisitor {
         private final JavaContext mContext;
-        private List<PsiElement> mNodes;
+        private List<UElement> mNodes;
         private boolean mHaveConditional;
 
         public InflationVisitor(JavaContext context) {
@@ -128,19 +131,24 @@ public class ViewHolderDetector extends Detector implements JavaPsiScanner {
         }
 
         @Override
-        public void visitMethodCallExpression(PsiMethodCallExpression node) {
-            super.visitMethodCallExpression(node);
+        public boolean visitCallExpression(UCallExpression node) {
+            if (UastExpressionUtils.isMethodCall(node)) {
+                checkMethodCall(node);
+            }
+            return super.visitCallExpression(node);
+        }
 
-            PsiReferenceExpression expression = node.getMethodExpression();
-            if (expression.getQualifierExpression() != null) {
-                String methodName = expression.getReferenceName();
+        private void checkMethodCall(UCallExpression node) {
+            UExpression receiver = node.getReceiver();
+            if (receiver != null) {
+                String methodName = node.getMethodName();
                 if (INFLATE.equals(methodName)
-                        && node.getArgumentList().getExpressions().length >= 1) {
+                        && node.getValueArgumentCount() >= 1) {
                     // See if we're inside a conditional
                     boolean insideIf = false;
                     //noinspection unchecked
-                    if (PsiTreeUtil.getParentOfType(node, PsiConditionalExpression.class,
-                            PsiIfStatement.class, PsiSwitchStatement.class) != null) {
+                    if (UastUtils.getParentOfType(node, true, UIfExpression.class, 
+                            USwitchExpression.class) != null) {
                         insideIf = true;
                         mHaveConditional = true;
                     }
@@ -165,7 +173,7 @@ public class ViewHolderDetector extends Detector implements JavaPsiScanner {
 
         public void finish() {
             if (!mHaveConditional && mNodes != null) {
-                for (PsiElement node : mNodes) {
+                for (UElement node : mNodes) {
                     String message = "Unconditional layout inflation from view adapter: "
                             + "Should use View Holder pattern (use recycled view passed "
                             + "into this method as the second parameter) for smoother "

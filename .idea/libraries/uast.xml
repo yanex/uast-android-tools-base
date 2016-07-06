@@ -1,9 +1,14 @@
 <component name="libraryTable">
   <library name="uast">
     <CLASSES>
-      <root url="jar://$PROJECT_DIR$/../../prebuilts/tools/common/m2/repository/com/android/tools/external/com-intellij/uast/145.597.3/uast-145.597.3.jar!/" />
+      <root url="jar://$PROJECT_DIR$/../../prebuilts/tools/common/m2/repository/com/intellij/intellij-core/143/intellij-core-143.jar!/" />
+      <root url="jar://$PROJECT_DIR$/../../prebuilts/tools/common/m2/repository/org/jetbrains/uast/uast-java/1.0/uast-java-1.0.jar!/" />
     </CLASSES>
     <JAVADOC />
-    <SOURCES />
+    <SOURCES>
+      <root url="file://$PROJECT_DIR$/../../../uast/uast-new-java/src" />
+      <root url="file://$PROJECT_DIR$/../../../uast/uast-common/src" />
+      <root url="file://$PROJECT_DIR$/../../../uast/uast-common/src" />
+    </SOURCES>
   </library>
 </component>

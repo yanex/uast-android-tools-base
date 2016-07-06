@@ -460,8 +460,7 @@ public class AnnotationDetector extends Detector implements JavaPsiScanner {
                         if (classType.getParameters().length == 1) {
                             PsiClass resolved = classType.resolve();
                             if (resolved != null &&
-                                mContext.getEvaluator().implementsInterface(resolved,
-                                  "java.util.Collection", false)) {
+                                JavaEvaluator.isSubClassOf(resolved, "java.util.Collection", false)) {
                                 type = classType.getParameters()[0];
                             }
                         }

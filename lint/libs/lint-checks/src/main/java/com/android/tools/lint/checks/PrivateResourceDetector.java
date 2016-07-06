@@ -46,7 +46,7 @@ import com.android.resources.ResourceFolderType;
 import com.android.resources.ResourceType;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Context;
-import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
+import com.android.tools.lint.detector.api.Detector;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
@@ -57,9 +57,9 @@ import com.android.tools.lint.detector.api.ResourceXmlDetector;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
 import com.android.tools.lint.detector.api.XmlContext;
-import com.intellij.psi.JavaElementVisitor;
-import com.intellij.psi.PsiElement;
 
+import org.jetbrains.uast.UElement;
+import org.jetbrains.uast.visitor.UastVisitor;
 import org.w3c.dom.Attr;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
@@ -74,7 +74,7 @@ import java.util.List;
  * Check which looks for access of private resources.
  */
 public class PrivateResourceDetector extends ResourceXmlDetector implements
-        JavaPsiScanner {
+        Detector.UastScanner {
     /** Attribute for overriding a resource */
     private static final String ATTR_OVERRIDE = "override";
 
@@ -104,7 +104,7 @@ public class PrivateResourceDetector extends ResourceXmlDetector implements
     public PrivateResourceDetector() {
     }
 
-    // ---- Implements JavaScanner ----
+    // ---- Implements UastScanner ----
 
     @Override
     public boolean appliesToResourceRefs() {
@@ -112,9 +112,9 @@ public class PrivateResourceDetector extends ResourceXmlDetector implements
     }
 
     @Override
-    public void visitResourceReference(@NonNull JavaContext context,
-            @Nullable JavaElementVisitor visitor, @NonNull PsiElement node,
-            @NonNull ResourceType resourceType, @NonNull String name, boolean isFramework) {
+    public void visitResourceReference(@NonNull JavaContext context, @Nullable UastVisitor visitor,
+            @NonNull UElement node, @NonNull ResourceType resourceType, @NonNull String name,
+            boolean isFramework) {
         if (context.getProject().isGradleProject() && !isFramework) {
             Project project = context.getProject();
             if (project.getGradleProjectModel() != null && project.getCurrentVariant() != null) {
@@ -284,7 +284,7 @@ public class PrivateResourceDetector extends ResourceXmlDetector implements
             context.report(ISSUE, location, message);
         }
     }
-
+    
     private static String createOverrideErrorMessage(@NonNull Context context,
             @NonNull ResourceType type, @NonNull String name) {
         String libraryName = getLibraryName(context, type, name);
@@ -312,9 +312,7 @@ public class PrivateResourceDetector extends ResourceXmlDetector implements
                 return libraryName;
             }
             MavenCoordinates coordinates = library.getResolvedCoordinates();
-            if (coordinates != null) {
-                return coordinates.getGroupId() + ':' + coordinates.getArtifactId();
-            }
+            return coordinates.getGroupId() + ':' + coordinates.getArtifactId();
         }
         return "the library";
     }

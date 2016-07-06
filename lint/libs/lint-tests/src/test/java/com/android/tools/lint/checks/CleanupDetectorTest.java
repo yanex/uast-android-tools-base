@@ -280,10 +280,10 @@ public class CleanupDetectorTest extends AbstractCheckTest {
         assertEquals(
                 "src/test/pkg/SharedPrefsTest.java:54: Warning: SharedPreferences.edit() without a corresponding commit() or apply() call [CommitPrefEdits]\n" +
                         "        SharedPreferences.Editor editor = preferences.edit();\n" +
-                        "                                          ~~~~~~~~~~~~~~~~~~\n" +
+                        "                                                      ~~~~~~\n" +
                         "src/test/pkg/SharedPrefsTest.java:62: Warning: SharedPreferences.edit() without a corresponding commit() or apply() call [CommitPrefEdits]\n" +
                         "        SharedPreferences.Editor editor = preferences.edit();\n" +
-                        "                                          ~~~~~~~~~~~~~~~~~~\n" +
+                        "                                                      ~~~~~~\n" +
                         "0 errors, 2 warnings\n" +
                         "",
 
@@ -296,10 +296,10 @@ public class CleanupDetectorTest extends AbstractCheckTest {
         assertEquals(
                 "src/test/pkg/SharedPrefsTest2.java:13: Warning: SharedPreferences.edit() without a corresponding commit() or apply() call [CommitPrefEdits]\n" +
                         "        SharedPreferences.Editor editor = preferences.edit();\n" +
-                        "                                          ~~~~~~~~~~~~~~~~~~\n" +
+                        "                                                      ~~~~~~\n" +
                         "src/test/pkg/SharedPrefsTest2.java:17: Warning: SharedPreferences.edit() without a corresponding commit() or apply() call [CommitPrefEdits]\n" +
                         "        Editor editor = preferences.edit();\n" +
-                        "                        ~~~~~~~~~~~~~~~~~~\n" +
+                        "                                    ~~~~~~\n" +
                         "0 errors, 2 warnings\n",
 
                 lintProject("src/test/pkg/SharedPrefsTest2.java.txt=>" +
@@ -311,7 +311,7 @@ public class CleanupDetectorTest extends AbstractCheckTest {
         assertEquals(
                 "src/test/pkg/SharedPrefsTest3.java:13: Warning: SharedPreferences.edit() without a corresponding commit() or apply() call [CommitPrefEdits]\n" +
                         "        Editor editor = preferences.edit();\n" +
-                        "                        ~~~~~~~~~~~~~~~~~~\n" +
+                        "                                    ~~~~~~\n" +
                         "0 errors, 1 warnings\n",
 
                 lintProject("src/test/pkg/SharedPrefsTest3.java.txt=>" +
@@ -323,7 +323,7 @@ public class CleanupDetectorTest extends AbstractCheckTest {
         assertEquals(""
                         + "src/test/pkg/SharedPrefsTest4.java:13: Warning: SharedPreferences.edit() without a corresponding commit() or apply() call [CommitPrefEdits]\n"
                         + "        Editor editor = preferences.edit();\n"
-                        + "                        ~~~~~~~~~~~~~~~~~~\n"
+                        + "                                    ~~~~~~\n"
                         + "0 errors, 1 warnings\n",
 
                 lintProject("src/test/pkg/SharedPrefsTest4.java.txt=>" +
@@ -335,25 +335,25 @@ public class CleanupDetectorTest extends AbstractCheckTest {
         assertEquals(
                 "src/test/pkg/SharedPrefsTest5.java:16: Warning: SharedPreferences.edit() without a corresponding commit() or apply() call [CommitPrefEdits]\n" +
                         "        mPreferences.edit().putString(PREF_FOO, \"bar\");\n" +
-                        "        ~~~~~~~~~~~~~~~~~~~\n" +
+                        "                     ~~~~~~\n" +
                         "src/test/pkg/SharedPrefsTest5.java:17: Warning: SharedPreferences.edit() without a corresponding commit() or apply() call [CommitPrefEdits]\n" +
                         "        mPreferences.edit().remove(PREF_BAZ).remove(PREF_FOO);\n" +
-                        "        ~~~~~~~~~~~~~~~~~~~\n" +
+                        "                     ~~~~~~\n" +
                         "src/test/pkg/SharedPrefsTest5.java:26: Warning: SharedPreferences.edit() without a corresponding commit() or apply() call [CommitPrefEdits]\n" +
                         "        preferences.edit().putString(PREF_FOO, \"bar\");\n" +
-                        "        ~~~~~~~~~~~~~~~~~~\n" +
+                        "                    ~~~~~~\n" +
                         "src/test/pkg/SharedPrefsTest5.java:27: Warning: SharedPreferences.edit() without a corresponding commit() or apply() call [CommitPrefEdits]\n" +
                         "        preferences.edit().remove(PREF_BAZ).remove(PREF_FOO);\n" +
-                        "        ~~~~~~~~~~~~~~~~~~\n" +
+                        "                    ~~~~~~\n" +
                         "src/test/pkg/SharedPrefsTest5.java:32: Warning: SharedPreferences.edit() without a corresponding commit() or apply() call [CommitPrefEdits]\n" +
                         "        preferences.edit().putString(PREF_FOO, \"bar\");\n" +
-                        "        ~~~~~~~~~~~~~~~~~~\n" +
+                        "                    ~~~~~~\n" +
                         "src/test/pkg/SharedPrefsTest5.java:33: Warning: SharedPreferences.edit() without a corresponding commit() or apply() call [CommitPrefEdits]\n" +
                         "        preferences.edit().remove(PREF_BAZ).remove(PREF_FOO);\n" +
-                        "        ~~~~~~~~~~~~~~~~~~\n" +
+                        "                    ~~~~~~\n" +
                         "src/test/pkg/SharedPrefsTest5.java:38: Warning: SharedPreferences.edit() without a corresponding commit() or apply() call [CommitPrefEdits]\n" +
                         "        Editor editor = preferences.edit().putString(PREF_FOO, \"bar\");\n" +
-                        "                        ~~~~~~~~~~~~~~~~~~\n" +
+                        "                                    ~~~~~~\n" +
                         "0 errors, 7 warnings\n",
 
                 lintProject("src/test/pkg/SharedPrefsTest5.java.txt=>" +
@@ -365,7 +365,7 @@ public class CleanupDetectorTest extends AbstractCheckTest {
         assertEquals(""
                         + "src/test/pkg/SharedPrefsTest7.java:13: Warning: SharedPreferences.edit() without a corresponding commit() or apply() call [CommitPrefEdits]\n"
                         + "        settings.edit().putString(MY_PREF_KEY, myPrefValue);\n"
-                        + "        ~~~~~~~~~~~~~~~\n"
+                        + "                 ~~~~~~\n"
                         + "0 errors, 1 warnings\n",
 
                 lintProject("src/test/pkg/SharedPrefsTest7.java.txt=>" +
@@ -383,7 +383,7 @@ public class CleanupDetectorTest extends AbstractCheckTest {
         assertEquals(""
                         + "src/test/pkg/SharedPrefsTest8.java:11: Warning: Consider using apply() instead; commit writes its data to persistent storage immediately, whereas apply will handle it in the background [CommitPrefEdits]\n"
                         + "        editor.commit();\n"
-                        + "        ~~~~~~~~~~~~~~~\n"
+                        + "               ~~~~~~~~\n"
                         + "0 errors, 1 warnings\n",
 
                 lintProject(
@@ -393,9 +393,9 @@ public class CleanupDetectorTest extends AbstractCheckTest {
 
     public void testChainedCalls() throws Exception {
         assertEquals(""
-                        + "src/test/pkg/Chained.java:24: Warning: SharedPreferences.edit() without a corresponding commit() or apply() call [CommitPrefEdits]\n"
-                        + "        PreferenceManager\n"
-                        + "        ^\n"
+                        + "src/test/pkg/Chained.java:26: Warning: SharedPreferences.edit() without a corresponding commit() or apply() call [CommitPrefEdits]\n"
+                        + "                .edit()\n"
+                        + "                 ~~~~~~\n"
                         + "0 errors, 1 warnings\n",
                 lintProject(java("src/test/pkg/Chained.java", ""
                         + "package test.pkg;\n"

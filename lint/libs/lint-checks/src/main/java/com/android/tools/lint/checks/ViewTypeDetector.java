@@ -35,7 +35,7 @@ import com.android.resources.ResourceType;
 import com.android.tools.lint.client.api.LintClient;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Context;
-import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
+import com.android.tools.lint.detector.api.Detector;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
@@ -53,17 +53,16 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
-import com.intellij.psi.JavaElementVisitor;
 import com.intellij.psi.PsiClassType;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiExpression;
-import com.intellij.psi.PsiMethod;
-import com.intellij.psi.PsiMethodCallExpression;
-import com.intellij.psi.PsiParenthesizedExpression;
 import com.intellij.psi.PsiType;
-import com.intellij.psi.PsiTypeCastExpression;
-import com.intellij.psi.PsiTypeElement;
 
+import org.jetbrains.uast.UBinaryExpressionWithType;
+import org.jetbrains.uast.UCallExpression;
+import org.jetbrains.uast.UElement;
+import org.jetbrains.uast.UExpression;
+import org.jetbrains.uast.UMethod;
+import org.jetbrains.uast.UParenthesizedExpression;
+import org.jetbrains.uast.visitor.UastVisitor;
 import org.w3c.dom.Attr;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
@@ -92,7 +91,7 @@ import java.util.Set;
  * check its name or class attributes to make sure the cast is compatible with
  * the named fragment class!
  */
-public class ViewTypeDetector extends ResourceXmlDetector implements JavaPsiScanner {
+public class ViewTypeDetector extends ResourceXmlDetector implements Detector.UastScanner {
     /** Mismatched view types */
     @SuppressWarnings("unchecked")
     public static final Issue ISSUE = Issue.create(
@@ -176,8 +175,8 @@ public class ViewTypeDetector extends ResourceXmlDetector implements JavaPsiScan
     }
 
     @Override
-    public void visitMethod(@NonNull JavaContext context, @Nullable JavaElementVisitor visitor,
-            @NonNull PsiMethodCallExpression call, @NonNull PsiMethod method) {
+    public void visitMethod(@NonNull JavaContext context, @Nullable UastVisitor visitor,
+            @NonNull UCallExpression call, @NonNull UMethod method) {
         LintClient client = context.getClient();
         if (mIgnore == Boolean.TRUE) {
             return;
@@ -189,17 +188,13 @@ public class ViewTypeDetector extends ResourceXmlDetector implements JavaPsiScan
             }
         }
         assert method.getName().equals("findViewById");
-        PsiElement node = call;
-        while (node != null && node.getParent() instanceof PsiParenthesizedExpression) {
-            node = node.getParent();
+        UElement node = LintUtils.skipParentheses(call);
+        while (node != null && node.getContainingElement() instanceof UParenthesizedExpression) {
+            node = node.getContainingElement();
         }
-        if (node.getParent() instanceof PsiTypeCastExpression) {
-            PsiTypeCastExpression cast = (PsiTypeCastExpression) node.getParent();
-            PsiTypeElement castTypeElement = cast.getCastType();
-            if (castTypeElement == null) {
-                return;
-            }
-            PsiType type = castTypeElement.getType();
+        if (node != null && node.getContainingElement() instanceof UBinaryExpressionWithType) {
+            UBinaryExpressionWithType cast = (UBinaryExpressionWithType) node.getContainingElement();
+            PsiType type = cast.getType();
             String castType = null;
             if (type instanceof PsiClassType) {
                 castType = type.getCanonicalText();
@@ -208,11 +203,10 @@ public class ViewTypeDetector extends ResourceXmlDetector implements JavaPsiScan
                 return;
             }
 
-            PsiExpression[] args = call.getArgumentList().getExpressions();
-            if (args.length == 1) {
-                PsiExpression first = args[0];
-                ResourceUrl resourceUrl = ResourceEvaluator.getResource(context.getEvaluator(),
-                        first);
+            List<UExpression> args = call.getValueArguments();
+            if (args.size() == 1) {
+                UExpression first = args.get(0);
+                ResourceUrl resourceUrl = ResourceEvaluator.getResource(context, first);
                 if (resourceUrl != null && resourceUrl.type == ResourceType.ID &&
                         !resourceUrl.framework) {
                     String id = resourceUrl.name;
@@ -231,7 +225,7 @@ public class ViewTypeDetector extends ResourceXmlDetector implements JavaPsiScan
                             for (ResourceItem item : items) {
                                 Collection<String> tags = getViewTags(context, item);
                                 if (tags != null) {
-                                   compatible.addAll(tags);
+                                    compatible.addAll(tags);
                                 }
                             }
                             if (!compatible.isEmpty()) {
@@ -320,7 +314,7 @@ public class ViewTypeDetector extends ResourceXmlDetector implements JavaPsiScan
 
     /** Check if the view and cast type are compatible */
     private static void checkCompatible(JavaContext context, String castType, String layoutType,
-            List<String> layoutTypes, PsiTypeCastExpression node) {
+            List<String> layoutTypes, UBinaryExpressionWithType node) {
         assert layoutType == null || layoutTypes == null; // Should only specify one or the other
         boolean compatible = true;
         if (layoutType != null) {

@@ -32,7 +32,6 @@ import com.android.annotations.VisibleForTesting;
 import com.android.tools.lint.client.api.JavaEvaluator;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Detector;
-import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
 import com.android.tools.lint.detector.api.Detector.XmlScanner;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
@@ -43,14 +42,16 @@ import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
 import com.android.tools.lint.detector.api.XmlContext;
 import com.google.common.collect.Sets;
-import com.intellij.psi.JavaRecursiveElementVisitor;
-import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiMethod;
-import com.intellij.psi.PsiMethodCallExpression;
 import com.intellij.psi.PsiParameter;
-import com.intellij.psi.PsiReferenceExpression;
 
+import org.jetbrains.uast.UCallExpression;
+import org.jetbrains.uast.UClass;
+import org.jetbrains.uast.UExpression;
+import org.jetbrains.uast.USimpleNameReferenceExpression;
+import org.jetbrains.uast.util.UastExpressionUtils;
+import org.jetbrains.uast.visitor.AbstractUastVisitor;
 import org.w3c.dom.Element;
 
 import java.util.Collection;
@@ -61,7 +62,7 @@ import java.util.List;
 import java.util.Set;
 
 public class UnsafeBroadcastReceiverDetector extends Detector
-        implements JavaPsiScanner, XmlScanner {
+        implements Detector.UastScanner, XmlScanner {
 
     /* Description of check implementations:
      *
@@ -584,7 +585,7 @@ public class UnsafeBroadcastReceiverDetector extends Detector
     }
 
     @Override
-    public void checkClass(@NonNull JavaContext context, @NonNull PsiClass declaration) {
+    public void checkClass(@NonNull JavaContext context, @NonNull UClass declaration) {
         String name = declaration.getName();
         if (name == null) {
             // anonymous classes can't be the ones referenced in the manifest
@@ -597,9 +598,8 @@ public class UnsafeBroadcastReceiverDetector extends Detector
         if (!mReceiversWithProtectedBroadcastIntentFilter.contains(qualifiedName)) {
             return;
         }
-        JavaEvaluator evaluator = context.getEvaluator();
         for (PsiMethod method : declaration.findMethodsByName("onReceive", false)) {
-            if (evaluator.parametersMatch(method, CLASS_CONTEXT, CLASS_INTENT)) {
+            if (JavaEvaluator.parametersMatch(method, CLASS_CONTEXT, CLASS_INTENT)) {
                 checkOnReceive(context, method);
             }
         }
@@ -617,8 +617,12 @@ public class UnsafeBroadcastReceiverDetector extends Detector
         // finding may be a false positive. (An alternative option would be to not
         // report a finding at all in this case.)
         PsiParameter parameter = method.getParameterList().getParameters()[1];
-        OnReceiveVisitor visitor = new OnReceiveVisitor(context.getEvaluator(), parameter);
-        method.accept(visitor);
+        OnReceiveVisitor visitor = new OnReceiveVisitor(parameter);
+        UExpression body = context.getUastContext().getMethodBody(method);
+        if (body != null) {
+            body.accept(visitor);
+        }
+
         if (!visitor.getCallsGetAction()) {
             String report;
             if (!visitor.getUsesIntent()) {
@@ -651,14 +655,13 @@ public class UnsafeBroadcastReceiverDetector extends Detector
         }
     }
 
-    private static class OnReceiveVisitor extends JavaRecursiveElementVisitor {
-        @NonNull private final JavaEvaluator mEvaluator;
+    private static class OnReceiveVisitor extends AbstractUastVisitor {
+
         @Nullable private final PsiParameter mParameter;
         private boolean mCallsGetAction;
         private boolean mUsesIntent;
 
-        public OnReceiveVisitor(@NonNull JavaEvaluator context, @Nullable PsiParameter parameter) {
-            mEvaluator = context;
+        public OnReceiveVisitor(@Nullable PsiParameter parameter) {
             mParameter = parameter;
         }
 
@@ -671,27 +674,26 @@ public class UnsafeBroadcastReceiverDetector extends Detector
         }
 
         @Override
-        public void visitMethodCallExpression(PsiMethodCallExpression node) {
-            if (!mCallsGetAction) {
-                PsiMethod method = node.resolveMethod();
+        public boolean visitCallExpression(UCallExpression node) {
+            if (!mCallsGetAction && UastExpressionUtils.isMethodCall(node)) {
+                PsiMethod method = node.resolve();
                 if (method != null && "getAction".equals(method.getName()) &&
-                        mEvaluator.isMemberInSubClassOf(method, CLASS_INTENT, false)) {
+                        JavaEvaluator.isMemberInSubClassOf(method, CLASS_INTENT, false)) {
                     mCallsGetAction = true;
                 }
             }
-
-            super.visitMethodCallExpression(node);
+            return super.visitCallExpression(node);
         }
 
         @Override
-        public void visitReferenceExpression(PsiReferenceExpression expression) {
+        public boolean visitSimpleNameReferenceExpression(USimpleNameReferenceExpression node) {
             if (!mUsesIntent && mParameter != null) {
-                PsiElement resolved = expression.resolve();
+                PsiElement resolved = node.resolve();
                 if (mParameter.equals(resolved)) {
                     mUsesIntent = true;
                 }
             }
-            super.visitReferenceExpression(expression);
+            return super.visitSimpleNameReferenceExpression(node);
         }
     }
 }

@@ -57,7 +57,7 @@ public class AlwaysShowActionDetectorTest extends AbstractCheckTest {
         assertEquals(
                 "src/test/pkg/ActionTest1.java:7: Warning: Prefer \"SHOW_AS_ACTION_IF_ROOM\" instead of \"SHOW_AS_ACTION_ALWAYS\" [AlwaysShowAction]\n" +
                 "        System.out.println(MenuItem.SHOW_AS_ACTION_ALWAYS);\n" +
-                "                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n" +
+                "                                    ~~~~~~~~~~~~~~~~~~~~~\n" +
                 "0 errors, 1 warnings\n" +
                 "",
 

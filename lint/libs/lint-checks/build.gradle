@@ -9,6 +9,8 @@ version = rootProject.ext.baseVersion
 dependencies {
     compile project(':base:lint-api')
     compile 'org.ow2.asm:asm-analysis:5.0.4'
+    compile 'com.intellij:intellij-core:143'
+    compile 'org.jetbrains.uast:uast-java:1.0'
 }
 
 sourceSets {

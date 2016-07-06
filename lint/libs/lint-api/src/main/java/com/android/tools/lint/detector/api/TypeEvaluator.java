@@ -34,6 +34,7 @@ import com.android.tools.lint.client.api.JavaParser.ResolvedMethod;
 import com.android.tools.lint.client.api.JavaParser.ResolvedNode;
 import com.android.tools.lint.client.api.JavaParser.ResolvedVariable;
 import com.android.tools.lint.client.api.JavaParser.TypeDescriptor;
+import com.android.tools.lint.client.api.UastLintUtils;
 import com.intellij.psi.PsiAssignmentExpression;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiDeclarationStatement;
@@ -48,6 +49,15 @@ import com.intellij.psi.PsiReferenceExpression;
 import com.intellij.psi.PsiStatement;
 import com.intellij.psi.PsiType;
 import com.intellij.psi.util.PsiTreeUtil;
+
+import org.jetbrains.uast.UCallExpression;
+import org.jetbrains.uast.UElement;
+import org.jetbrains.uast.UExpression;
+import org.jetbrains.uast.UMethod;
+import org.jetbrains.uast.UVariable;
+import org.jetbrains.uast.UastUtils;
+import org.jetbrains.uast.expressions.UReferenceExpression;
+import org.jetbrains.uast.util.UastExpressionUtils;
 
 import java.util.ListIterator;
 
@@ -336,6 +346,40 @@ public class TypeEvaluator {
         } else if (node instanceof PsiExpression) {
             PsiExpression expression = (PsiExpression) node;
             return expression.getType();
+        }
+
+        return null;
+    }
+
+    @Nullable
+    public static PsiType evaluate(@NonNull JavaContext context, @Nullable UElement node) {
+        if (node == null) {
+            return null;
+        }
+        
+        UElement resolved = node;
+        if (resolved instanceof UReferenceExpression) {
+            resolved = UastUtils.tryResolveUDeclaration(resolved, context.getUastContext());
+        }
+        
+        if (resolved instanceof UMethod) {
+            return ((UMethod) resolved).getPsi().getReturnType();
+        } else if (resolved instanceof UVariable) {
+            UVariable variable = (UVariable) resolved; 
+            UElement lastAssignment = UastLintUtils.findLastAssignment(variable, node, context);
+            if (lastAssignment != null) {
+                return evaluate(context, lastAssignment);
+            }
+            return variable.getType();
+        } else if (resolved instanceof UCallExpression) {
+            if (UastExpressionUtils.isMethodCall(resolved)) {
+                PsiMethod resolvedMethod = ((UCallExpression) resolved).resolve();
+                return resolvedMethod != null ? resolvedMethod.getReturnType() : null;
+            } else {
+                return ((UCallExpression) resolved).getExpressionType();
+            }
+        } else if (resolved instanceof UExpression) {
+            return ((UExpression) resolved).getExpressionType();
         }
 
         return null;

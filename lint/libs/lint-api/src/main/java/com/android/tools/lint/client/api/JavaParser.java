@@ -29,11 +29,17 @@ import com.android.tools.lint.detector.api.Location;
 import com.android.tools.lint.detector.api.Position;
 import com.google.common.annotations.Beta;
 import com.google.common.base.Splitter;
+import com.intellij.mock.MockProject;
 import com.intellij.openapi.util.TextRange;
+import com.intellij.openapi.vfs.VfsUtilCore;
+import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiJavaFile;
 import com.intellij.psi.PsiType;
+
+import org.jetbrains.uast.UFile;
+import org.jetbrains.uast.UastContext;
 
 import java.io.File;
 import java.lang.reflect.Modifier;
@@ -133,6 +139,10 @@ public abstract class JavaParser {
      */
     @NonNull
     public abstract JavaEvaluator getEvaluator();
+    
+    public abstract MockProject getIdeaProject();
+    
+    public abstract UastContext getUastContext();
 
     /**
      * Returns a {@link Location} for the given node
@@ -168,11 +178,11 @@ public abstract class JavaParser {
                 // Don't bother with this error if it's in a different file during single-file analysis
                 return Location.NONE;
             }
-            File ioFile = context.getEvaluator().getFile(containingFile);
-            if (ioFile == null) {
+            VirtualFile virtualFile = containingFile.getVirtualFile();
+            if (virtualFile == null) {
                 return Location.NONE;
             }
-            file = ioFile;
+            file = VfsUtilCore.virtualToIoFile(virtualFile);
         }
         return Location.create(file, context.getContents(), range.getStartOffset(),
                                range.getEndOffset());
@@ -329,7 +339,7 @@ public abstract class JavaParser {
      * Dispose any data structures held for the given context.
      * @param context information about the file previously parsed
      * @param compilationUnit the compilation unit being disposed
-     * @deprecated Use {@link #dispose(JavaContext, PsiJavaFile)} instead
+     * @deprecated Use {@link #dispose(JavaContext, UFile)} instead
      */
     @Deprecated
     public void dispose(@NonNull JavaContext context, @NonNull Node compilationUnit) {
@@ -340,7 +350,15 @@ public abstract class JavaParser {
      * @param context information about the file previously parsed
      * @param compilationUnit the compilation unit being disposed
      */
-    public void dispose(@NonNull JavaContext context, @NonNull PsiJavaFile compilationUnit) {
+    public void dispose(@NonNull JavaContext context, @NonNull PsiFile compilationUnit) {
+    }
+
+    /**
+     * Dispose any data structures held for the given context.
+     * @param context information about the file previously parsed
+     * @param compilationUnit the compilation unit being disposed
+     */
+    public void dispose(@NonNull JavaContext context, @NonNull UFile compilationUnit) {
     }
 
     /**

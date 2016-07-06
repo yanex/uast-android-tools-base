@@ -30,9 +30,11 @@ import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
-import com.intellij.psi.JavaElementVisitor;
-import com.intellij.psi.PsiMethod;
-import com.intellij.psi.PsiMethodCallExpression;
+
+import org.jetbrains.uast.UCallExpression;
+import org.jetbrains.uast.UElement;
+import org.jetbrains.uast.UMethod;
+import org.jetbrains.uast.visitor.UastVisitor;
 
 import java.util.Collections;
 import java.util.List;
@@ -40,7 +42,7 @@ import java.util.List;
 /**
  * Ensures that addJavascriptInterface is not called for API levels below 17.
  */
-public class AddJavascriptInterfaceDetector extends Detector implements Detector.JavaPsiScanner {
+public class AddJavascriptInterfaceDetector extends Detector implements Detector.UastScanner {
     public static final Issue ISSUE = Issue.create(
             "AddJavascriptInterface", //$NON-NLS-1$
             "addJavascriptInterface Called",
@@ -60,7 +62,7 @@ public class AddJavascriptInterfaceDetector extends Detector implements Detector
     private static final String WEB_VIEW = "android.webkit.WebView"; //$NON-NLS-1$
     private static final String ADD_JAVASCRIPT_INTERFACE = "addJavascriptInterface"; //$NON-NLS-1$
 
-    // ---- Implements JavaScanner ----
+    // ---- Implements UastScanner ----
 
     @Nullable
     @Override
@@ -69,20 +71,23 @@ public class AddJavascriptInterfaceDetector extends Detector implements Detector
     }
 
     @Override
-    public void visitMethod(@NonNull JavaContext context, @Nullable JavaElementVisitor visitor,
-            @NonNull PsiMethodCallExpression node, @NonNull PsiMethod method) {
+    public void visitMethod(@NonNull JavaContext context, @Nullable UastVisitor visitor,
+            @NonNull UCallExpression call, @NonNull UMethod method) {
         // Ignore the issue if we never build for any API less than 17.
         if (context.getMainProject().getMinSdk() >= 17) {
             return;
         }
 
-        JavaEvaluator evaluator = context.getEvaluator();
-        if (!evaluator.methodMatches(method, WEB_VIEW, true, TYPE_OBJECT, TYPE_STRING)) {
+        if (!JavaEvaluator.methodMatches(method, WEB_VIEW, true, TYPE_OBJECT, TYPE_STRING)) {
             return;
         }
 
         String message = "`WebView.addJavascriptInterface` should not be called with minSdkVersion < 17 for security reasons: " +
                 "JavaScript can use reflection to manipulate application";
-        context.report(ISSUE, node, context.getNameLocation(node), message);
+        UElement reportElement = call.getMethodIdentifier();
+        if (reportElement == null) {
+            reportElement = call;
+        }
+        context.reportUast(ISSUE, method, context.getUastNameLocation(reportElement), message);
     }
 }

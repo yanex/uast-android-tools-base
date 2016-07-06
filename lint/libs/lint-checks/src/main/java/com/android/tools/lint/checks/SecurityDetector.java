@@ -37,10 +37,10 @@ import static com.android.xml.AndroidManifest.NODE_ACTION;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
+import com.android.tools.lint.client.api.JavaEvaluator;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.ConstantEvaluator;
 import com.android.tools.lint.detector.api.Detector;
-import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
 import com.android.tools.lint.detector.api.Detector.XmlScanner;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
@@ -50,12 +50,13 @@ import com.android.tools.lint.detector.api.Location;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
 import com.android.tools.lint.detector.api.XmlContext;
-import com.intellij.psi.JavaElementVisitor;
-import com.intellij.psi.PsiExpression;
-import com.intellij.psi.PsiMethod;
-import com.intellij.psi.PsiMethodCallExpression;
-import com.intellij.psi.PsiReferenceExpression;
 
+import org.jetbrains.uast.UCallExpression;
+import org.jetbrains.uast.UExpression;
+import org.jetbrains.uast.UMethod;
+import org.jetbrains.uast.USimpleNameReferenceExpression;
+import org.jetbrains.uast.visitor.AbstractUastVisitor;
+import org.jetbrains.uast.visitor.UastVisitor;
 import org.w3c.dom.Attr;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
@@ -68,7 +69,7 @@ import java.util.List;
 /**
  * Checks that exported services request a permission.
  */
-public class SecurityDetector extends Detector implements XmlScanner, JavaPsiScanner {
+public class SecurityDetector extends Detector implements XmlScanner, Detector.UastScanner {
 
     private static final Implementation IMPLEMENTATION_MANIFEST = new Implementation(
             SecurityDetector.class,
@@ -387,26 +388,26 @@ public class SecurityDetector extends Detector implements XmlScanner, JavaPsiSca
     }
 
     @Override
-    public void visitMethod(@NonNull JavaContext context, @Nullable JavaElementVisitor visitor,
-            @NonNull PsiMethodCallExpression node, @NonNull PsiMethod method) {
-        PsiExpression[] args = node.getArgumentList().getExpressions();
-        String methodName = node.getMethodExpression().getReferenceName();
-        if (context.getEvaluator().isMemberInSubClassOf(method, FILE_CLASS, false)) {
+    public void visitMethod(@NonNull JavaContext context, @Nullable UastVisitor visitor,
+            @NonNull UCallExpression node, @NonNull UMethod method) {
+        List<UExpression> args = node.getValueArguments();
+        String methodName = node.getMethodName();
+        if (JavaEvaluator.isMemberInSubClassOf(method, FILE_CLASS, false)) {
             // Report calls to java.io.File.setReadable(true, false) or
             // java.io.File.setWritable(true, false)
             if ("setReadable".equals(methodName)) {
-                if (args.length == 2 &&
-                        Boolean.TRUE.equals(ConstantEvaluator.evaluate(context, args[0])) &&
-                        Boolean.FALSE.equals(ConstantEvaluator.evaluate(context, args[1]))) {
+                if (args.size() == 2 &&
+                        Boolean.TRUE.equals(ConstantEvaluator.evaluate(context, args.get(0))) &&
+                        Boolean.FALSE.equals(ConstantEvaluator.evaluate(context, args.get(1)))) {
                     context.report(SET_READABLE, node, context.getLocation(node),
                             "Setting file permissions to world-readable can be " +
                                     "risky, review carefully");
                 }
                 return;
             } else if ("setWritable".equals(methodName)) {
-                if (args.length == 2 &&
-                        Boolean.TRUE.equals(ConstantEvaluator.evaluate(context, args[0])) &&
-                        Boolean.FALSE.equals(ConstantEvaluator.evaluate(context, args[1]))) {
+                if (args.size() == 2 &&
+                        Boolean.TRUE.equals(ConstantEvaluator.evaluate(context, args.get(0))) &&
+                        Boolean.FALSE.equals(ConstantEvaluator.evaluate(context, args.get(1)))) {
                     context.report(SET_WRITABLE, node, context.getLocation(node),
                             "Setting file permissions to world-writable can be " +
                                     "risky, review carefully");
@@ -416,30 +417,30 @@ public class SecurityDetector extends Detector implements XmlScanner, JavaPsiSca
         }
 
         assert visitor != null;
-        for (PsiExpression arg : args) {
+        for (UExpression arg : args) {
             arg.accept(visitor);
         }
+
     }
 
     @Nullable
     @Override
-    public JavaElementVisitor createPsiVisitor(@NonNull JavaContext context) {
+    public UastVisitor createUastVisitor(@NonNull JavaContext context) {
         return new IdentifierVisitor(context);
     }
 
-    private static class IdentifierVisitor extends JavaElementVisitor {
+    private static class IdentifierVisitor extends AbstractUastVisitor {
         private final JavaContext mContext;
 
-        public IdentifierVisitor(JavaContext context) {
+        private IdentifierVisitor(JavaContext context) {
             super();
             mContext = context;
         }
-
+        
         @Override
-        public void visitReferenceExpression(PsiReferenceExpression node) {
-            super.visitReferenceExpression(node);
+        public boolean visitSimpleNameReferenceExpression(USimpleNameReferenceExpression node) {
+            String name = node.getIdentifier();
 
-            String name = node.getReferenceName();
             if ("MODE_WORLD_WRITEABLE".equals(name)) { //$NON-NLS-1$
                 Location location = mContext.getLocation(node);
                 mContext.report(WORLD_WRITEABLE, node, location,
@@ -451,6 +452,8 @@ public class SecurityDetector extends Detector implements XmlScanner, JavaPsiSca
                         "Using `MODE_WORLD_READABLE` when creating files can be " +
                                 "risky, review carefully");
             }
+
+            return super.visitSimpleNameReferenceExpression(node);
         }
     }
 }

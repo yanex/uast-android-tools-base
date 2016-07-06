@@ -27,13 +27,13 @@ import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
-import com.intellij.psi.JavaElementVisitor;
-import com.intellij.psi.PsiCatchSection;
-import com.intellij.psi.PsiDisjunctionType;
-import com.intellij.psi.PsiMethod;
-import com.intellij.psi.PsiMethodCallExpression;
 import com.intellij.psi.PsiType;
-import com.intellij.psi.util.PsiTreeUtil;
+
+import org.jetbrains.uast.UCallExpression;
+import org.jetbrains.uast.UCatchClause;
+import org.jetbrains.uast.UMethod;
+import org.jetbrains.uast.UastUtils;
+import org.jetbrains.uast.visitor.UastVisitor;
 
 import java.util.Arrays;
 import java.util.List;
@@ -41,7 +41,7 @@ import java.util.List;
 /**
  * Detect calls to get device Identifiers.
  */
-public class HardwareIdDetector extends Detector implements Detector.JavaPsiScanner {
+public class HardwareIdDetector extends Detector implements Detector.UastScanner {
 
     private static final Implementation IMPLEMENTATION = new Implementation(
             HardwareIdDetector.class,
@@ -96,9 +96,8 @@ public class HardwareIdDetector extends Detector implements Detector.JavaPsiScan
     }
 
     @Override
-    public void visitMethod(@NonNull JavaContext context, @Nullable JavaElementVisitor visitor,
-            @NonNull PsiMethodCallExpression node, @NonNull PsiMethod method) {
-        JavaEvaluator evaluator = context.getEvaluator();
+    public void visitMethod(@NonNull JavaContext context, @Nullable UastVisitor visitor,
+            @NonNull UCallExpression node, @NonNull UMethod method) {
         String className = null;
         switch (method.getName()) {
             case BLUETOOTH_ADAPTER_GET_ADDRESS:
@@ -120,19 +119,19 @@ public class HardwareIdDetector extends Detector implements Detector.JavaPsiScan
                 assert false;
         }
 
-        if (!evaluator.isMemberInClass(method, className)) {
+        if (!JavaEvaluator.isMemberInClass(method, className)) {
             return;
         }
 
         if (method.getName().equals(SETTINGS_SECURE_GET_STRING)) {
-            if (evaluator.getParameterCount(method) != 2
-                    || node.getArgumentList().getExpressions().length != 2) {
+            if (JavaEvaluator.getParameterCount(method) != 2
+                    || node.getValueArgumentCount() != 2) {
                 // we are explicitly looking for Secure.getString(x, ANDROID_ID) here
                 return;
             }
-            String value = ConstantEvaluator.evaluateString(
-                    context, node.getArgumentList().getExpressions()[1], false);
             // Check if the value matches Settings.Secure.ANDROID_ID
+            String value = ConstantEvaluator.evaluateString(
+                    context, node.getValueArguments().get(1), false);
             if (!"android_id".equals(value)) { //$NON-NLS-1$
                 return;
             }
@@ -140,8 +139,8 @@ public class HardwareIdDetector extends Detector implements Detector.JavaPsiScan
             // which is not recommended so continue and show an error.
         }
 
-        PsiCatchSection surroundingCatchSection =
-                PsiTreeUtil.getParentOfType(node, PsiCatchSection.class, true);
+        UCatchClause surroundingCatchSection =
+                UastUtils.getParentOfType(node, UCatchClause.class, true);
         // If any of the calls to get device identifiers are explicitly in a catch block for
         // GooglePlayServicesNotAvailableException, then don't report a warning.
         // This is to handle the case where the alternate play services api is unavailable on
@@ -156,19 +155,13 @@ public class HardwareIdDetector extends Detector implements Detector.JavaPsiScan
     }
 
     private static boolean inCatchPlayServicesNotAvailableException(
-            PsiCatchSection surroundingCatchSection) {
-        if (surroundingCatchSection != null && surroundingCatchSection.getCatchType() != null) {
-            PsiType catchType = surroundingCatchSection.getCatchType();
-            // Handle multi-catch statements such as (IOException | AnotherException e)
-            if (catchType instanceof PsiDisjunctionType) {
-                PsiDisjunctionType disjunctionType = (PsiDisjunctionType) catchType;
-                if (disjunctionType.getDisjunctions()
-                        .stream()
-                        .anyMatch(t -> t.equalsToText(PLAY_SERVICES_NOT_AVAILABLE_EXCEPTION))) {
+            UCatchClause surroundingCatchSection) {
+        if (surroundingCatchSection != null) {
+            List<PsiType> catchTypes = surroundingCatchSection.getTypes();
+            for (PsiType type : catchTypes) {
+                if (type.equalsToText(PLAY_SERVICES_NOT_AVAILABLE_EXCEPTION)) {
                     return true;
                 }
-            } else if (catchType.equalsToText(PLAY_SERVICES_NOT_AVAILABLE_EXCEPTION)) {
-                return true;
             }
         }
         return false;

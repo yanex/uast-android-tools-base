@@ -16,29 +16,31 @@
 
 package com.android.tools.lint.checks;
 
-import static com.intellij.psi.util.PsiTreeUtil.getParentOfType;
-
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
+import com.android.tools.lint.client.api.JavaEvaluator;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Detector;
-import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
 import com.android.tools.lint.detector.api.Location;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
-import com.intellij.psi.PsiAnonymousClass;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiClassType;
 import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiExpression;
-import com.intellij.psi.PsiExpressionList;
 import com.intellij.psi.PsiMethod;
-import com.intellij.psi.PsiNewExpression;
 import com.intellij.psi.PsiParameter;
 import com.intellij.psi.PsiType;
+
+import org.jetbrains.uast.UAnonymousClass;
+import org.jetbrains.uast.UCallExpression;
+import org.jetbrains.uast.UClass;
+import org.jetbrains.uast.UExpression;
+import org.jetbrains.uast.UMethod;
+import org.jetbrains.uast.UObjectLiteralExpression;
+import org.jetbrains.uast.UastUtils;
 
 import java.util.Collections;
 import java.util.List;
@@ -47,7 +49,7 @@ import java.util.List;
  * Checks that Handler implementations are top level classes or static.
  * See the corresponding check in the android.os.Handler source code.
  */
-public class HandlerDetector extends Detector implements JavaPsiScanner {
+public class HandlerDetector extends Detector implements Detector.UastScanner {
 
     /** Potentially leaking handlers */
     public static final Issue ISSUE = Issue.create(
@@ -77,7 +79,7 @@ public class HandlerDetector extends Detector implements JavaPsiScanner {
     public HandlerDetector() {
     }
 
-    // ---- Implements JavaScanner ----
+    // ---- Implements UastScanner ----
 
     @Nullable
     @Override
@@ -86,26 +88,24 @@ public class HandlerDetector extends Detector implements JavaPsiScanner {
     }
 
     @Override
-    public void checkClass(@NonNull JavaContext context, @NonNull PsiClass declaration) {
+    public void checkClass(@NonNull JavaContext context, @NonNull UClass declaration) {
         // Only consider static inner classes
-        if (context.getEvaluator().isStatic(declaration)) {
+        if (JavaEvaluator.isStatic(declaration)) {
             return;
         }
-        boolean isAnonymous = declaration instanceof PsiAnonymousClass;
+        boolean isAnonymous = declaration instanceof UAnonymousClass;
         if (declaration.getContainingClass() == null && !isAnonymous) {
             return;
         }
 
         //// Only flag handlers using the default looper
         //noinspection unchecked
-        PsiNewExpression invocation = getParentOfType(declaration, PsiNewExpression.class,
-                true, PsiMethod.class);
+        UCallExpression invocation = UastUtils.getParentOfType(
+                declaration, UObjectLiteralExpression.class, true, UMethod.class);
         if (invocation != null) {
-            PsiExpressionList argumentList = invocation.getArgumentList();
-            if (argumentList != null && isAnonymous) {
-                ((PsiAnonymousClass)declaration).getArgumentList();
-                for (PsiExpression expression : argumentList.getExpressions()) {
-                    PsiType type = expression.getType();
+            if (isAnonymous && invocation.getValueArgumentCount() > 0) {
+                for (UExpression expression : invocation.getValueArguments()) {
+                    PsiType type = expression.getExpressionType();
                     if (type instanceof PsiClassType
                             && LOOPER_CLS.equals(type.getCanonicalText())) {
                         return;
@@ -125,7 +125,7 @@ public class HandlerDetector extends Detector implements JavaPsiScanner {
         Location location = context.getLocation(locationNode);
         String name;
         if (isAnonymous) {
-            name = "anonymous " + ((PsiAnonymousClass)declaration).getBaseClassReference().getQualifiedName();
+            name = "anonymous " + ((UAnonymousClass)declaration).getBaseClassReference().getQualifiedName();
         } else {
             name = declaration.getQualifiedName();
         }
@@ -134,6 +134,7 @@ public class HandlerDetector extends Detector implements JavaPsiScanner {
         context.report(ISSUE, locationNode, location, String.format(
                 "This Handler class should be static or leaks might occur (%1$s)",
                 name));
+
     }
 
     private static boolean hasLooperConstructorParameter(@NonNull PsiClass cls) {

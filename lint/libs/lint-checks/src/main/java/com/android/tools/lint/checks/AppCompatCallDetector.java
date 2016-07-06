@@ -32,16 +32,18 @@ import com.android.tools.lint.detector.api.LintUtils;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
 import com.android.tools.lint.detector.api.TextFormat;
-import com.intellij.psi.JavaElementVisitor;
-import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiMethod;
-import com.intellij.psi.PsiMethodCallExpression;
-import com.intellij.psi.util.PsiTreeUtil;
+
+import org.jetbrains.uast.UCallExpression;
+import org.jetbrains.uast.UClass;
+import org.jetbrains.uast.UMethod;
+import org.jetbrains.uast.UastUtils;
+import org.jetbrains.uast.visitor.UastVisitor;
 
 import java.util.Arrays;
 import java.util.List;
 
-public class AppCompatCallDetector extends Detector implements Detector.JavaPsiScanner {
+public class AppCompatCallDetector extends Detector implements Detector.UastScanner {
     public static final Issue ISSUE = Issue.create(
             "AppCompatMethod",
             "Using Wrong AppCompat Method",
@@ -87,9 +89,9 @@ public class AppCompatCallDetector extends Detector implements Detector.JavaPsiS
     }
 
     @Override
-    public void visitMethod(@NonNull JavaContext context, @Nullable JavaElementVisitor visitor,
-            @NonNull PsiMethodCallExpression node, @NonNull PsiMethod method) {
-        if (mDependsOnAppCompat && isAppBarActivityCall(context, node, method)) {
+    public void visitMethod(@NonNull JavaContext context, @Nullable UastVisitor visitor,
+            @NonNull UCallExpression node, @NonNull UMethod method) {
+        if (mDependsOnAppCompat && isAppBarActivityCall(node, method)) {
             String name = method.getName();
             String replace = null;
             if (GET_ACTION_BAR.equals(name)) {
@@ -111,17 +113,17 @@ public class AppCompatCallDetector extends Detector implements Detector.JavaPsiS
                 context.report(ISSUE, node, context.getLocation(node), message);
             }
         }
+
     }
 
-    private static boolean isAppBarActivityCall(@NonNull JavaContext context,
-            @NonNull PsiMethodCallExpression node, @NonNull PsiMethod method) {
-        JavaEvaluator evaluator = context.getEvaluator();
-        if (evaluator.isMemberInSubClassOf(method, CLASS_ACTIVITY, false)) {
+    private static boolean isAppBarActivityCall(
+            @NonNull UCallExpression node, @NonNull PsiMethod method) {
+        if (JavaEvaluator.isMemberInSubClassOf(method, CLASS_ACTIVITY, false)) {
             // Make sure that the calling context is a subclass of ActionBarActivity;
             // we don't want to flag these calls if they are in non-appcompat activities
             // such as PreferenceActivity (see b.android.com/58512)
-            PsiClass cls = PsiTreeUtil.getParentOfType(node, PsiClass.class, true);
-            return cls != null && evaluator.extendsClass(cls,
+            UClass cls = UastUtils.getParentOfType(node, UClass.class, true);
+            return cls != null && JavaEvaluator.isSubClassOf(cls,
                     "android.support.v7.app.ActionBarActivity", false);
         }
         return false;

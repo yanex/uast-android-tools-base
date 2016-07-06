@@ -49,28 +49,28 @@ public class LogDetectorTest extends AbstractCheckTest {
             "    src/test/pkg/LogTest.java:85: Conflicting tag\n" +
             "src/test/pkg/LogTest.java:53: Error: The logging tag can be at most 23 characters, was 43 (really_really_really_really_really_long_tag) [LongLogTag]\n" +
             "            Log.d(\"really_really_really_really_really_long_tag\", \"message\"); // error: too long\n" +
-            "            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n" +
+            "                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n" +
             "src/test/pkg/LogTest.java:59: Error: The logging tag can be at most 23 characters, was 24 (123456789012345678901234) [LongLogTag]\n" +
             "            Log.d(TAG24, \"message\"); // error: too long\n" +
-            "            ~~~~~~~~~~~~~~~~~~~~~~~\n" +
+            "                ~~~~~~~~~~~~~~~~~~~\n" +
             "src/test/pkg/LogTest.java:60: Error: The logging tag can be at most 23 characters, was 39 (MyReallyReallyReallyReallyReallyLongTag) [LongLogTag]\n" +
             "            Log.d(LONG_TAG, \"message\"); // error: way too long\n" +
-            "            ~~~~~~~~~~~~~~~~~~~~~~~~~~\n" +
+            "                ~~~~~~~~~~~~~~~~~~~~~~\n" +
             "src/test/pkg/LogTest.java:64: Error: The logging tag can be at most 23 characters, was 39 (MyReallyReallyReallyReallyReallyLongTag) [LongLogTag]\n" +
             "            Log.d(LOCAL_TAG, \"message\"); // error: too long\n" +
-            "            ~~~~~~~~~~~~~~~~~~~~~~~~~~~\n" +
+            "                ~~~~~~~~~~~~~~~~~~~~~~~\n" +
             "src/test/pkg/LogTest.java:67: Error: The logging tag can be at most 23 characters, was 28 (1234567890123456789012MyTag1) [LongLogTag]\n" +
             "            Log.d(TAG22 + TAG1, \"message\"); // error: too long\n" +
-            "            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n" +
+            "                ~~~~~~~~~~~~~~~~~~~~~~~~~~\n" +
             "src/test/pkg/LogTest.java:68: Error: The logging tag can be at most 23 characters, was 27 (1234567890123456789012MyTag) [LongLogTag]\n" +
             "            Log.d(TAG22 + \"MyTag\", \"message\"); // error: too long\n" +
-            "            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n" +
+            "                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n" +
             "src/test/pkg/LogTest.java:21: Warning: The log call Log.i(...) should be conditional: surround with if (Log.isLoggable(...)) or if (BuildConfig.DEBUG) { ... } [LogConditional]\n" +
             "        Log.i(TAG1, \"message\" + m); // error: unconditional w/ computation\n" +
-            "        ~~~~~~~~~~~~~~~~~~~~~~~~~~\n" +
+            "            ~~~~~~~~~~~~~~~~~~~~~~\n" +
             "src/test/pkg/LogTest.java:22: Warning: The log call Log.i(...) should be conditional: surround with if (Log.isLoggable(...)) or if (BuildConfig.DEBUG) { ... } [LogConditional]\n" +
             "        Log.i(TAG1, toString()); // error: unconditional w/ computation\n" +
-            "        ~~~~~~~~~~~~~~~~~~~~~~~\n" +
+            "            ~~~~~~~~~~~~~~~~~~~\n" +
             "11 errors, 2 warnings\n",
 
             lintProject(

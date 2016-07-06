@@ -7,6 +7,10 @@ archivesBaseName = 'lint'
 version = rootProject.ext.baseVersion
 
 dependencies {
+    compile 'com.intellij:intellij-core:143'
+    compile 'com.intellij:trove4j:143'
+    compile 'com.intellij:picocontainer:143'
+    compile 'com.intellij:asm-all:143'
     compile project(':base:lint-checks')
     compile 'org.eclipse.jdt.core.compiler:ecj:4.5.1'
 }

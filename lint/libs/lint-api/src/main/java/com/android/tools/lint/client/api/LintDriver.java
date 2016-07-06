@@ -60,7 +60,6 @@ import com.android.tools.lint.detector.api.Severity;
 import com.android.tools.lint.detector.api.TextFormat;
 import com.android.tools.lint.detector.api.XmlContext;
 import com.google.common.annotations.Beta;
-import com.google.common.base.Joiner;
 import com.google.common.base.Objects;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ArrayListMultimap;
@@ -81,6 +80,7 @@ import com.intellij.psi.PsiModifierList;
 import com.intellij.psi.PsiModifierListOwner;
 import com.intellij.psi.PsiNameValuePair;
 
+import org.jetbrains.uast.UElement;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.AbstractInsnNode;
@@ -681,6 +681,7 @@ public class LintDriver {
                 for (Detector detector : javaCodeDetectors) {
                     assert detector instanceof Detector.JavaScanner ||
                             // TODO: Migrate all
+                            detector instanceof Detector.UastScanner ||
                             detector instanceof Detector.JavaPsiScanner : detector;
                 }
             }
@@ -689,6 +690,7 @@ public class LintDriver {
                 for (Detector detector : javaFileDetectors) {
                     assert detector instanceof Detector.JavaScanner ||
                             // TODO: Migrate all
+                            detector instanceof Detector.UastScanner ||
                             detector instanceof Detector.JavaPsiScanner : detector;
                 }
             }
@@ -1557,24 +1559,43 @@ public class LintDriver {
         // Temporary: we still have some builtin checks that aren't migrated to
         // PSI. Until that's complete, remove them from the list here
         //List<Detector> scanners = checks;
-        List<Detector> scanners = Lists.newArrayListWithCapacity(checks.size());
+        List<Detector> scanners = Lists.newArrayListWithCapacity(0);
+        List<Detector> uastScanners = Lists.newArrayListWithCapacity(checks.size());
         for (Detector detector : checks) {
             if (detector instanceof Detector.JavaPsiScanner) {
                 scanners.add(detector);
+            } else if (detector instanceof Detector.UastScanner) {
+                uastScanners.add(detector);
             }
         }
 
-        JavaPsiVisitor visitor = new JavaPsiVisitor(javaParser, scanners);
-        visitor.prepare(contexts);
-        for (JavaContext context : contexts) {
-            fireEvent(EventType.SCANNING_FILE, context);
-            visitor.visitFile(context);
-            if (mCanceled) {
-                return;
+        if (!scanners.isEmpty()) {
+            JavaPsiVisitor visitor = new JavaPsiVisitor(javaParser, scanners);
+            visitor.prepare(contexts);
+            for (JavaContext context : contexts) {
+                fireEvent(EventType.SCANNING_FILE, context);
+                visitor.visitFile(context);
+                if (mCanceled) {
+                    return;
+                }
             }
+
+            visitor.dispose();
         }
 
-        visitor.dispose();
+        if (!uastScanners.isEmpty()) {
+            UElementVisitor uElementVisitor = new UElementVisitor(javaParser, uastScanners);
+            uElementVisitor.prepare(contexts);
+            for (JavaContext context : contexts) {
+                fireEvent(EventType.SCANNING_FILE, context);
+                uElementVisitor.visitFile(context);
+                if (mCanceled) {
+                    return;
+                }
+            }
+            
+            uElementVisitor.dispose();
+        }
 
         // Only if the user is using some custom lint rules that haven't been updated
         // yet
@@ -2594,6 +2615,31 @@ public class LintDriver {
         return false;
     }
 
+    public boolean isSuppressed(@Nullable JavaContext context, @NonNull Issue issue,
+            @Nullable UElement scope) {
+        boolean checkComments = mClient.checkForSuppressComments() &&
+                context != null && context.containsCommentSuppress();
+        while (scope != null) {
+            if (scope instanceof PsiModifierListOwner) {
+                PsiModifierListOwner owner = (PsiModifierListOwner) scope;
+                if (isSuppressed(issue, owner.getModifierList())) {
+                    return true;
+                }
+            }
+
+            if (checkComments && context.isSuppressedWithComment(scope, issue)) {
+                return true;
+            }
+
+            scope = scope.getContainingElement();
+            if (scope instanceof PsiFile) {
+                return false;
+            }
+        }
+
+        return false;
+    }
+    
     public boolean isSuppressed(@Nullable JavaContext context, @NonNull Issue issue,
             @Nullable PsiElement scope) {
         boolean checkComments = mClient.checkForSuppressComments() &&

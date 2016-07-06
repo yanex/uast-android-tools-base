@@ -22,19 +22,22 @@ import com.android.tools.lint.client.api.JavaEvaluator;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.ConstantEvaluator;
 import com.android.tools.lint.detector.api.Detector;
-import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
 import com.android.tools.lint.detector.api.TypeEvaluator;
-import com.intellij.psi.JavaElementVisitor;
 import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiExpression;
 import com.intellij.psi.PsiMethod;
-import com.intellij.psi.PsiMethodCallExpression;
 import com.intellij.psi.PsiType;
+
+import org.jetbrains.uast.UCallExpression;
+import org.jetbrains.uast.UElement;
+import org.jetbrains.uast.UExpression;
+import org.jetbrains.uast.UMethod;
+import org.jetbrains.uast.UastUtils;
+import org.jetbrains.uast.visitor.UastVisitor;
 
 import java.util.Collections;
 import java.util.List;
@@ -42,7 +45,7 @@ import java.util.List;
 /**
  * Checks for hardcoded seeds with random numbers.
  */
-public class SecureRandomDetector extends Detector implements JavaPsiScanner {
+public class SecureRandomDetector extends Detector implements Detector.UastScanner {
     /** Unregistered activities and services */
     public static final Issue ISSUE = Issue.create(
             "SecureRandom", //$NON-NLS-1$
@@ -67,7 +70,7 @@ public class SecureRandomDetector extends Detector implements JavaPsiScanner {
     public SecureRandomDetector() {
     }
 
-    // ---- Implements JavaScanner ----
+    // ---- Implements UastScanner ----
 
     @Nullable
     @Override
@@ -76,17 +79,16 @@ public class SecureRandomDetector extends Detector implements JavaPsiScanner {
     }
 
     @Override
-    public void visitMethod(@NonNull JavaContext context, @Nullable JavaElementVisitor visitor,
-            @NonNull PsiMethodCallExpression call, @NonNull PsiMethod method) {
-        PsiExpression[] arguments = call.getArgumentList().getExpressions();
-        if (arguments.length == 0) {
+    public void visitMethod(@NonNull JavaContext context, @Nullable UastVisitor visitor,
+            @NonNull UCallExpression call, @NonNull UMethod method) {
+        List<UExpression> arguments = call.getValueArguments();
+        if (arguments.isEmpty()) {
             return;
         }
-        PsiExpression seedArgument = arguments[0];
-        JavaEvaluator evaluator = context.getEvaluator();
-        if (evaluator.isMemberInClass(method, JAVA_SECURITY_SECURE_RANDOM)
-                || evaluator.isMemberInSubClassOf(method, JAVA_UTIL_RANDOM, false)
-                        && isSecureRandomReceiver(context, call)) {
+        UExpression seedArgument = arguments.get(0);
+        if (JavaEvaluator.isMemberInClass(method, JAVA_SECURITY_SECURE_RANDOM)
+                || JavaEvaluator.isMemberInSubClassOf(method, JAVA_UTIL_RANDOM, false)
+                && isSecureRandomReceiver(context, call)) {
             // Called with a fixed seed?
             Object seed = ConstantEvaluator.evaluate(context, seedArgument);
             //noinspection VariableNotUsedInsideIf
@@ -96,7 +98,7 @@ public class SecureRandomDetector extends Detector implements JavaPsiScanner {
                                 "it is not secure. Use `getSeed()`.");
             } else {
                 // Called with a simple System.currentTimeMillis() seed or something like that?
-                PsiElement resolvedArgument = evaluator.resolve(seedArgument);
+                PsiElement resolvedArgument = UastUtils.tryResolve(seedArgument);
                 if (resolvedArgument instanceof PsiMethod) {
                     PsiMethod seedMethod = (PsiMethod) resolvedArgument;
                     String methodName = seedMethod.getName();
@@ -117,8 +119,8 @@ public class SecureRandomDetector extends Detector implements JavaPsiScanner {
      */
     private static boolean isSecureRandomReceiver(
             @NonNull JavaContext context,
-            @NonNull PsiMethodCallExpression call) {
-        PsiElement operand = call.getMethodExpression().getQualifier();
+            @NonNull UCallExpression call) {
+        UElement operand = call.getReceiver();
         return operand != null && isSecureRandomType(context, operand);
     }
 
@@ -127,7 +129,7 @@ public class SecureRandomDetector extends Detector implements JavaPsiScanner {
      */
     private static boolean isSecureRandomType(
             @NonNull JavaContext context,
-            @NonNull PsiElement node) {
+            @NonNull UElement node) {
         PsiType type = TypeEvaluator.evaluate(context, node);
         return type != null && JAVA_SECURITY_SECURE_RANDOM.equals(type.getCanonicalText());
     }

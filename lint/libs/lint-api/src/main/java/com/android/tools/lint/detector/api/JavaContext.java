@@ -29,6 +29,8 @@ import com.android.tools.lint.client.api.LintDriver;
 import com.android.tools.lint.detector.api.Detector.JavaPsiScanner;
 import com.google.common.collect.Iterators;
 import com.intellij.openapi.util.TextRange;
+import com.intellij.openapi.vfs.VfsUtilCore;
+import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiAnnotation;
 import com.intellij.psi.PsiAnonymousClass;
 import com.intellij.psi.PsiClass;
@@ -42,10 +44,20 @@ import com.intellij.psi.PsiLabeledStatement;
 import com.intellij.psi.PsiMember;
 import com.intellij.psi.PsiMethod;
 import com.intellij.psi.PsiMethodCallExpression;
+import com.intellij.psi.PsiNameIdentifierOwner;
 import com.intellij.psi.PsiNewExpression;
 import com.intellij.psi.PsiReferenceExpression;
 import com.intellij.psi.PsiSwitchStatement;
 import com.intellij.psi.util.PsiTreeUtil;
+
+import org.jetbrains.uast.UCallExpression;
+import org.jetbrains.uast.UElement;
+import org.jetbrains.uast.UEnumConstant;
+import org.jetbrains.uast.UFile;
+import org.jetbrains.uast.UastContext;
+import org.jetbrains.uast.UastUtils;
+import org.jetbrains.uast.psi.PsiElementBacked;
+import org.jetbrains.uast.psi.UElementWithLocation;
 
 import java.io.File;
 import java.util.Iterator;
@@ -84,6 +96,8 @@ public class JavaContext extends Context {
 
     /** The parse tree */
     private PsiJavaFile mJavaFile;
+    
+    private UFile mUFile;
 
     /** The parser which produced the parse tree */
     private final JavaParser mParser;
@@ -111,7 +125,12 @@ public class JavaContext extends Context {
         super(driver, project, main, file);
         mParser = parser;
     }
-
+    
+    @NonNull
+    public UastContext getUastContext() {
+        return mParser.getUastContext();
+    }
+    
     /**
      * Returns a location for the given node
      *
@@ -194,8 +213,72 @@ public class JavaContext extends Context {
     }
 
     @NonNull
+    public Location getUastNameLocation(@NonNull UElement element) {
+        if (element instanceof PsiNameIdentifierOwner) {
+            PsiElement nameIdentifier = ((PsiNameIdentifierOwner) element).getNameIdentifier();
+            if (nameIdentifier != null) {
+                return getLocation(nameIdentifier);
+            }
+        } else if (element instanceof UCallExpression) {
+            UElement methodReference = ((UCallExpression) element).getMethodIdentifier();
+            if (methodReference != null) {
+                return getLocation(methodReference);
+            }
+        }
+        
+        return getLocation(element);
+    }
+
+    @NonNull
     public Location getLocation(@NonNull PsiElement node) {
         return mParser.getLocation(this, node);
+    }
+    
+    @NonNull
+    public Location getLocation(@Nullable UElement node) {
+        if (node == null) {
+            return Location.NONE;
+        }
+
+        if (node instanceof UElementWithLocation) {
+            UFile file = UastUtils.getContainingFile(node);
+            if (file == null) {
+                return Location.NONE;
+            }
+            File ioFile = UastUtils.getIoFile(file);
+            if (ioFile == null) {
+                return Location.NONE;
+            }
+            UElementWithLocation segment = (UElementWithLocation) node;
+            return Location.create(ioFile, file.getPsi().getText(),
+                    segment.getStartOffset(), segment.getEndOffset());
+        } else if (node instanceof PsiElementBacked) {
+            PsiElement psiElement = ((PsiElementBacked) node).getPsi();
+            if (psiElement != null) {
+                TextRange range = psiElement.getTextRange();
+                UFile containingFile = getUFile();
+                if (containingFile == null) {
+                    return Location.NONE;
+                }
+                File file = this.file;
+                if (!containingFile.equals(getUFile())) {
+                    // Reporting an error in a different file.
+                    if (getDriver().getScope().size() == 1) {
+                        // Don't bother with this error if it's in a different file during single-file analysis
+                        return Location.NONE;
+                    }
+                    VirtualFile virtualFile = containingFile.getPsi().getVirtualFile();
+                    if (virtualFile == null) {
+                        return Location.NONE;
+                    }
+                    file = VfsUtilCore.virtualToIoFile(virtualFile);
+                }
+                return Location.create(file, getContents(), range.getStartOffset(),
+                        range.getEndOffset());
+            }
+        }
+        
+        return Location.NONE;
     }
 
     @NonNull
@@ -234,6 +317,16 @@ public class JavaContext extends Context {
     }
 
     /**
+     * Returns the {@link UFile}.
+     * 
+     * @return the parsed UFile
+     */
+    @Nullable
+    public UFile getUFile() {
+        return mUFile;
+    }
+
+    /**
      * Sets the compilation result. Not intended for client usage; the lint infrastructure
      * will set this when a context has been processed
      *
@@ -241,6 +334,10 @@ public class JavaContext extends Context {
      */
     public void setJavaFile(@Nullable PsiJavaFile javaFile) {
         mJavaFile = javaFile;
+    }
+    
+    public void setUFile(@Nullable UFile file) {
+        mUFile = file;
     }
 
     @Override
@@ -283,6 +380,27 @@ public class JavaContext extends Context {
             return;
         }
         super.report(issue, location, message);
+    }
+
+    public void report(
+            @NonNull Issue issue,
+            @Nullable UElement scope,
+            @NonNull Location location,
+            @NonNull String message) {
+        if (scope != null && mDriver.isSuppressed(this, issue, scope)) {
+            return;
+        }
+        super.report(issue, location, message);
+    }
+
+    /** UDeclaration is a PsiElement, so it's impossible to call report(Issue, UElement, ...)
+     *  without an explicit cast. */
+    public void reportUast(
+            @NonNull Issue issue,
+            @Nullable UElement scope,
+            @NonNull Location location,
+            @NonNull String message) {
+        report(issue, scope, location, message);
     }
 
     /**
@@ -369,6 +487,10 @@ public class JavaContext extends Context {
         return isSuppressedWithComment(start, issue);
     }
 
+    public boolean isSuppressedWithComment(@NonNull UElement scope, @NonNull Issue issue) {
+        return false;
+    }
+    
     public boolean isSuppressedWithComment(@NonNull PsiElement scope, @NonNull Issue issue) {
         // Check whether there is a comment marker
         String contents = getContents();
@@ -399,15 +521,6 @@ public class JavaContext extends Context {
     @Nullable
     public ResolvedNode resolve(@NonNull Node node) {
         return mParser.resolve(this, node);
-    }
-
-    /**
-     * @deprecated Use {@link JavaEvaluator#findClass(String)} instead
-     */
-    @Deprecated
-    @Nullable
-    public ResolvedClass findClass(@NonNull String fullyQualifiedName) {
-        return mParser.findClass(this, fullyQualifiedName);
     }
 
     /**
@@ -449,6 +562,22 @@ public class JavaContext extends Context {
             }
         } else if (call instanceof PsiEnumConstant) {
             return ((PsiEnumConstant)call).getName();
+        } else {
+            return null;
+        }
+    }
+
+    @Nullable
+    public static String getMethodName(@NonNull UElement call) {
+        if (call instanceof UEnumConstant) {
+            return ((UEnumConstant)call).getName();
+        } else if (call instanceof UCallExpression) {
+            String methodName = ((UCallExpression) call).getMethodName();
+            if (methodName != null) {
+                return methodName;
+            } else {
+                return UastUtils.getQualifiedName(((UCallExpression) call).getClassReference());
+            }
         } else {
             return null;
         }

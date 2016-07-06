@@ -17,6 +17,7 @@
 package com.android.tools.lint.checks;
 
 import com.android.annotations.NonNull;
+import com.android.annotations.Nullable;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Detector;
 import com.android.tools.lint.detector.api.Implementation;
@@ -25,11 +26,12 @@ import com.android.tools.lint.detector.api.JavaContext;
 import com.android.tools.lint.detector.api.Location;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
-import com.intellij.psi.CommonClassNames;
-import com.intellij.psi.JavaElementVisitor;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiLiteralExpression;
-import com.intellij.psi.PsiType;
+
+import org.jetbrains.uast.UElement;
+import org.jetbrains.uast.ULiteralExpression;
+import org.jetbrains.uast.UastLiteralUtils;
+import org.jetbrains.uast.visitor.AbstractUastVisitor;
+import org.jetbrains.uast.visitor.UastVisitor;
 
 import java.util.Collections;
 import java.util.List;
@@ -37,7 +39,7 @@ import java.util.List;
 /**
  * Looks for hardcoded references to /sdcard/.
  */
-public class SdCardDetector extends Detector implements Detector.JavaPsiScanner {
+public class SdCardDetector extends Detector implements Detector.UastScanner {
     /** Hardcoded /sdcard/ references */
     public static final Issue ISSUE = Issue.create(
             "SdCardPath", //$NON-NLS-1$
@@ -64,36 +66,34 @@ public class SdCardDetector extends Detector implements Detector.JavaPsiScanner 
     }
 
 
-    // ---- Implements JavaScanner ----
+    // ---- Implements UastScanner ----
 
+    @Nullable
     @Override
-    public List<Class<? extends PsiElement>> getApplicablePsiTypes() {
-        return Collections.<Class<? extends PsiElement>>singletonList(PsiLiteralExpression.class);
+    public List<Class<? extends UElement>> getApplicableUastTypes() {
+        return Collections.<Class<? extends UElement>>singletonList(ULiteralExpression.class);
     }
 
+    @Nullable
     @Override
-    public JavaElementVisitor createPsiVisitor(@NonNull JavaContext context) {
+    public UastVisitor createUastVisitor(@NonNull JavaContext context) {
         return new StringChecker(context);
     }
 
-    private static class StringChecker extends JavaElementVisitor {
+    private static class StringChecker extends AbstractUastVisitor {
         private final JavaContext mContext;
 
-        public StringChecker(JavaContext context) {
+        private StringChecker(JavaContext context) {
             mContext = context;
         }
 
         @Override
-        public void visitLiteralExpression(PsiLiteralExpression node) {
-            PsiType type = node.getType();
-            if (type != null && type.getCanonicalText().equals(CommonClassNames.JAVA_LANG_STRING)) {
-                String s = (String)node.getValue();
-                if (s == null || s.isEmpty()) {
-                    return;
-                }
+        public boolean visitLiteralExpression(ULiteralExpression node) {
+            String s = UastLiteralUtils.getValueIfStringLiteral(node);
+            if (s != null && !s.isEmpty()) {
                 char c = s.charAt(0);
                 if (c != '/' && c != 'f') {
-                    return;
+                    return false;
                 }
 
                 if (s.startsWith("/sdcard")                        //$NON-NLS-1$
@@ -113,6 +113,8 @@ public class SdCardDetector extends Detector implements Detector.JavaPsiScanner 
                     mContext.report(ISSUE, node, location, message);
                 }
             }
+            
+            return super.visitLiteralExpression(node);
         }
     }
 }

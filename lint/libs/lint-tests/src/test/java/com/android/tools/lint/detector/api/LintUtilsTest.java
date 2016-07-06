@@ -58,11 +58,18 @@ import com.android.tools.lint.checks.BuiltinIssueRegistry;
 import com.android.tools.lint.client.api.JavaParser;
 import com.android.tools.lint.client.api.LintDriver;
 import com.google.common.collect.Iterables;
+import com.intellij.mock.MockProject;
+import com.intellij.psi.JavaPsiFacade;
+import com.intellij.psi.PsiClass;
+import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiJavaFile;
 
 import junit.framework.TestCase;
 
 import org.intellij.lang.annotations.Language;
+import org.jetbrains.uast.UElement;
+import org.jetbrains.uast.UFile;
+import org.jetbrains.uast.java.JavaConverter;
 
 import java.io.BufferedOutputStream;
 import java.io.File;
@@ -486,9 +493,14 @@ public class LintUtilsTest extends TestCase {
             context.setCompilationUnit(compilationUnit);
         }
         if (psi) {
-            PsiJavaFile javaFile = parser.parseJavaToPsi(context);
-            assertNotNull("Couldn't parse source", javaFile);
-            context.setJavaFile(javaFile);
+            MockProject ideaProject = parser.getIdeaProject();
+            assert ideaProject != null;
+            PsiClass javaClass = JavaPsiFacade.getInstance(ideaProject)
+                    .getElementFactory().createClassFromText(javaSource, null);
+            PsiFile javaFile = javaClass.getContainingFile();
+            assert javaFile instanceof PsiJavaFile : "Couldn't parse source as Java class";
+            PsiJavaFile psiJavaFile = (PsiJavaFile) javaFile;
+            context.setUFile((UFile) parser.getUastContext().convertElementWithParent(psiJavaFile, null));
         }
         return context;
     }

@@ -24,6 +24,10 @@ import com.intellij.psi.PsiLocalVariable;
 import junit.framework.TestCase;
 
 import org.intellij.lang.annotations.Language;
+import org.jetbrains.uast.UExpression;
+import org.jetbrains.uast.UFile;
+import org.jetbrains.uast.UVariable;
+import org.jetbrains.uast.visitor.AbstractUastVisitor;
 
 import java.io.File;
 import java.util.Arrays;
@@ -40,22 +44,23 @@ public class ConstantEvaluatorTest extends TestCase {
             final String targetVariable) {
         JavaContext context = LintUtilsTest.parsePsi(source, new File("src/test/pkg/Test.java"));
         assertNotNull(context);
-        PsiJavaFile javaFile = context.getJavaFile();
-        assertNotNull(javaFile);
+        UFile file = context.getUFile();
+        assertNotNull(file);
 
         // Find the expression
-        final AtomicReference<PsiExpression> reference = new AtomicReference<PsiExpression>();
-        javaFile.accept(new JavaRecursiveElementVisitor() {
+        final AtomicReference<UExpression> reference = new AtomicReference<UExpression>();
+        file.accept(new AbstractUastVisitor() {
             @Override
-            public void visitLocalVariable(PsiLocalVariable variable) {
-                super.visitLocalVariable(variable);
-                String name = variable.getName();
-                if (name != null && name.equals(targetVariable)) {
-                    reference.set(variable.getInitializer());
+            public boolean visitVariable(UVariable node) {
+                String name = node.getName();
+                if (node instanceof PsiLocalVariable
+                        && name != null && name.equals(targetVariable)) {
+                    reference.set(node.getUastInitializer());
                 }
+                return super.visitVariable(node);
             }
         });
-        PsiExpression expression = reference.get();
+        UExpression expression = reference.get();
         Object actual = ConstantEvaluator.evaluate(context, expression);
         if (expected == null) {
             assertNull(actual);
