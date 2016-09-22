@@ -54,6 +54,7 @@ import static com.android.tools.lint.detector.api.ResourceEvaluator.RES_SUFFIX;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.tools.lint.client.api.IssueRegistry;
+import com.android.tools.lint.client.api.UastLintUtils;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.ConstantEvaluator;
 import com.android.tools.lint.detector.api.Detector;
@@ -77,7 +78,6 @@ import com.intellij.psi.PsiArrayType;
 import com.intellij.psi.PsiAssignmentExpression;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiClassType;
-import com.intellij.psi.PsiCodeBlock;
 import com.intellij.psi.PsiConditionalExpression;
 import com.intellij.psi.PsiDeclarationStatement;
 import com.intellij.psi.PsiElement;
@@ -97,7 +97,6 @@ import com.intellij.psi.PsiParenthesizedExpression;
 import com.intellij.psi.PsiReference;
 import com.intellij.psi.PsiReferenceExpression;
 import com.intellij.psi.PsiStatement;
-import com.intellij.psi.PsiSwitchLabelStatement;
 import com.intellij.psi.PsiSwitchStatement;
 import com.intellij.psi.PsiType;
 import com.intellij.psi.PsiTypeCastExpression;
@@ -105,7 +104,6 @@ import com.intellij.psi.PsiVariable;
 import com.intellij.psi.util.PsiTreeUtil;
 
 import org.jetbrains.uast.UAnnotation;
-import org.jetbrains.uast.UBlockExpression;
 import org.jetbrains.uast.UCallExpression;
 import org.jetbrains.uast.UClass;
 import org.jetbrains.uast.UElement;
@@ -114,8 +112,6 @@ import org.jetbrains.uast.ULiteralExpression;
 import org.jetbrains.uast.UParenthesizedExpression;
 import org.jetbrains.uast.USwitchClauseExpression;
 import org.jetbrains.uast.USwitchExpression;
-import org.jetbrains.uast.UVariable;
-import org.jetbrains.uast.UVariableDeclarationsExpression;
 import org.jetbrains.uast.UastUtils;
 import org.jetbrains.uast.expressions.UReferenceExpression;
 import org.jetbrains.uast.java.JavaUTypeCastExpression;
@@ -516,51 +512,37 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
                 PsiAnnotation annotation = findIntDefAnnotation(condition);
                 if (annotation != null) {
 
-                    PsiAnnotationMemberValue value = annotation.findDeclaredAttributeValue(ATTR_VALUE);
-                    if (value == null) {
-                        value = annotation.findDeclaredAttributeValue(null);
-                    }
-                    if (value == null) {
-                        return false;
-                    }
+                    SwitchClauseChecker switchClauseChecker =
+                            new SwitchClauseChecker(switchExpression, annotation);
 
-                    if (!(value instanceof PsiArrayInitializerMemberValue)) {
-                        return false;
-                    }
+                    switchExpression.accept(switchClauseChecker);
 
-                    PsiArrayInitializerMemberValue array = (PsiArrayInitializerMemberValue)value;
-                    PsiAnnotationMemberValue[] allowedValues = array.getInitializers();
-
-                    List<PsiElement> fields = Lists.newArrayListWithCapacity(allowedValues.length);
-                    for (PsiAnnotationMemberValue allowedValue : allowedValues) {
-                        if (allowedValue instanceof PsiReferenceExpression) {
-                            PsiElement resolved = ((PsiReferenceExpression) allowedValue).resolve();
-                            if (resolved != null) {
-                                fields.add(resolved);
-                            }
-                        } else if (allowedValue instanceof PsiLiteral) {
-                            fields.add(allowedValue);
-                        }
-                    }
-
-                    switchExpression.accept(new SwitchClauseChecker(switchExpression, annotation, allowedValues, fields));
-
-                    if (!fields.isEmpty()) {
-                        List<String> list = computeFieldNames(switchExpression, fields);
-                        // Keep error message in sync with {@link #getMissingCases}
-                        String message = "Switch statement on an `int` with known associated constant "
-                                + "missing case " + Joiner.on(", ").join(list);
-                        Location location = mContext.getLocation(switchExpression);
-                        mContext.report(SWITCH_TYPE_DEF, switchExpression, location, message);
-                    }
+                    switchClauseChecker.reportMissingSwitchCases();
                 }
             }
             return false;
         }
 
+        @Nullable
+        private Integer getConstantValue(@NonNull PsiField intDefConstantRef) {
+            Object constant = intDefConstantRef.computeConstantValue();
+            if (constant instanceof Number) {
+                return ((Number)constant).intValue();
+            }
+
+            return null;
+        }
+
+        /**
+         * Searches for the corresponding @IntDef annotation definition associated
+         * with a given node
+         */
+        @Nullable
         private PsiAnnotation findIntDefAnnotation(@NonNull UExpression expression) {
             if (expression instanceof UReferenceExpression) {
+
                 PsiElement resolved = ((UReferenceExpression) expression).resolve();
+
                 if (resolved instanceof PsiModifierListOwner) {
                     PsiAnnotation[] annotations = mContext.getEvaluator().getAllAnnotations(
                             (PsiModifierListOwner)resolved, true);
@@ -573,66 +555,11 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
 
                 if (resolved instanceof PsiLocalVariable) {
                     PsiLocalVariable variable = (PsiLocalVariable) resolved;
-                    UBlockExpression block = UastUtils.getParentOfType(expression, UBlockExpression.class,
-                            false);
-                    if (block != null) {
-                        //PsiStatement prev = PsiTreeUtil.getPrevSiblingOfType(statement,
-                        //        PsiStatement.class);
+                    UExpression lastAssignment = UastLintUtils.findLastAssignment(variable,
+                            expression, mContext);
 
-                        List<UExpression> blockExpressions = block.getExpressions();
-                        String targetName = variable.getName();
-                        if (targetName == null) {
-                            return null;
-                        }
-
-                        for(UExpression blockExpression: blockExpressions) {
-
-                            if(blockExpression instanceof UVariableDeclarationsExpression) {
-                                for(UVariable v: ((UVariableDeclarationsExpression)blockExpression).getVariables()) {
-                                    UExpression initializer = v.getUastInitializer();
-                                    if(initializer != null) {
-                                        return findIntDefAnnotation(initializer);
-                                    }
-                                }
-                            }
-
-                        }
-
-                        //while (prev != null) {
-                        //    if (prev instanceof PsiDeclarationStatement) {
-                        //        for (PsiElement element : ((PsiDeclarationStatement) prev)
-                        //                .getDeclaredElements()) {
-                        //            if (variable.equals(element)) {
-                        //                PsiExpression initializer = variable.getInitializer();
-                        //                if (initializer != null) {
-                        //                    return findIntDef(initializer);
-                        //                }
-                        //                break;
-                        //            }
-                        //        }
-                        //    } else if (prev instanceof PsiExpressionStatement) {
-                        //        PsiExpression psiExpression = ((PsiExpressionStatement) prev)
-                        //                .getExpression();
-                        //        if (psiExpression instanceof PsiAssignmentExpression) {
-                        //            PsiAssignmentExpression assign
-                        //                    = (PsiAssignmentExpression) psiExpression;
-                        //            PsiExpression lhs = assign.getLExpression();
-                        //            if (lhs instanceof PsiReferenceExpression) {
-                        //                PsiReferenceExpression reference = (PsiReferenceExpression) lhs;
-                        //                if (targetName.equals(reference.getReferenceName()) &&
-                        //                        reference.getQualifier() == null) {
-                        //                    PsiExpression rExpression = assign.getRExpression();
-                        //                    if (rExpression != null) {
-                        //                        return findIntDef(rExpression);
-                        //                    }
-                        //                    break;
-                        //                }
-                        //            }
-                        //        }
-                        //    }
-                        //    prev = PsiTreeUtil.getPrevSiblingOfType(prev,
-                        //            PsiStatement.class);
-                        //}
+                    if(lastAssignment != null) {
+                        return findIntDefAnnotation(lastAssignment);
                     }
 
                 }
@@ -777,131 +704,6 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
             return null;
         }
 
-        private void checkSwitch(@NonNull PsiSwitchStatement node, @NonNull PsiAnnotation annotation) {
-            PsiCodeBlock block = node.getBody();
-            if (block == null) {
-                return;
-            }
-
-            PsiAnnotationMemberValue value = annotation.findDeclaredAttributeValue(ATTR_VALUE);
-            if (value == null) {
-                value = annotation.findDeclaredAttributeValue(null);
-            }
-            if (value == null) {
-                return;
-            }
-
-            if (!(value instanceof PsiArrayInitializerMemberValue)) {
-                return;
-            }
-
-            PsiArrayInitializerMemberValue array = (PsiArrayInitializerMemberValue)value;
-            PsiAnnotationMemberValue[] allowedValues = array.getInitializers();
-
-            List<PsiElement> fields = Lists.newArrayListWithCapacity(allowedValues.length);
-            for (PsiAnnotationMemberValue allowedValue : allowedValues) {
-                if (allowedValue instanceof PsiReferenceExpression) {
-                    PsiElement resolved = ((PsiReferenceExpression) allowedValue).resolve();
-                    if (resolved != null) {
-                        fields.add(resolved);
-                    }
-                } else if (allowedValue instanceof PsiLiteral) {
-                    fields.add(allowedValue);
-                }
-            }
-
-
-            // Empty switch: arguably we could skip these (since the IDE already warns about
-            // empty switches) but it's useful since the quickfix will kick in and offer all
-            // the missing ones when you're editing.
-            //   if (block.getStatements().length == 0) { return; }
-
-            for (PsiStatement statement : block.getStatements()) {
-                if (statement instanceof PsiSwitchLabelStatement) {
-                    PsiSwitchLabelStatement caseStatement = (PsiSwitchLabelStatement) statement;
-                    PsiExpression expression = caseStatement.getCaseValue();
-                    if (expression instanceof PsiLiteral) {
-                        // Report warnings if you specify hardcoded constants.
-                        // It's the wrong thing to do.
-                        List<String> list = computeFieldNames(node, Arrays.asList(allowedValues));
-                        // Keep error message in sync with {@link #getMissingCases}
-                        String message = "Don't use a constant here; expected one of: " + Joiner
-                                .on(", ").join(list);
-                        mContext.report(SWITCH_TYPE_DEF, expression,
-                                mContext.getLocation(expression), message);
-                        return; // Don't look for other missing typedef constants since you might
-                        // have aliased with value
-                    } else if (expression instanceof PsiReferenceExpression) { // default case can have null expression
-                        PsiElement resolved = ((PsiReferenceExpression) expression).resolve();
-                        if (resolved == null) {
-                            // If there are compilation issues (e.g. user is editing code) we
-                            // can't be certain, so don't flag anything.
-                            return;
-                        }
-                        if (resolved instanceof PsiField) {
-                            // We can't just do
-                            //    fields.remove(resolved);
-                            // since the fields list contains instances of potentially
-                            // different types with different hash codes (due to the
-                            // external annotations, which are not of the same type as
-                            // for example the ECJ based ones.
-                            //
-                            // The equals method on external field class deliberately handles
-                            // this (but it can't make its hash code match what
-                            // the ECJ fields do, which is tied to the ECJ binding hash code.)
-                            // So instead, manually check for equals. These lists tend to
-                            // be very short anyway.
-                            boolean found = false;
-                            ListIterator<PsiElement> iterator = fields.listIterator();
-                            while (iterator.hasNext()) {
-                                PsiElement field = iterator.next();
-                                if (field.equals(resolved)) {
-                                    iterator.remove();
-                                    found = true;
-                                    break;
-                                }
-                            }
-                            if (!found) {
-                                // Look for local alias
-                                PsiExpression initializer = ((PsiField) resolved).getInitializer();
-                                if (initializer instanceof PsiReferenceExpression) {
-                                    resolved = ((PsiReferenceExpression) expression).resolve();
-                                    if (resolved instanceof PsiField) {
-                                        iterator = fields.listIterator();
-                                        while (iterator.hasNext()) {
-                                            PsiElement field = iterator.next();
-                                            if (field.equals(initializer)) {
-                                                iterator.remove();
-                                                found = true;
-                                                break;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            if (!found) {
-                                List<String> list = computeFieldNames(node, Arrays.asList(allowedValues));
-                                // Keep error message in sync with {@link #getMissingCases}
-                                String message = "Unexpected constant; expected one of: " + Joiner
-                                        .on(", ").join(list);
-                                Location location = mContext.getNameLocation(expression);
-                                mContext.report(SWITCH_TYPE_DEF, expression, location, message);
-                            }
-                        }
-                    }
-                }
-            }
-            if (!fields.isEmpty()) {
-                List<String> list = computeFieldNames(node, fields);
-                // Keep error message in sync with {@link #getMissingCases}
-                String message = "Switch statement on an `int` with known associated constant "
-                        + "missing case " + Joiner.on(", ").join(list);
-                Location location = mContext.getNameLocation(node);
-                mContext.report(SWITCH_TYPE_DEF, node, location, message);
-            }
-        }
-
         private void ensureUniqueValues(@NonNull PsiAnnotation node) {
             PsiAnnotationMemberValue value = node.findAttributeValue(ATTR_VALUE);
             if (value == null) {
@@ -1026,22 +828,54 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
         private class SwitchClauseChecker extends AbstractUastVisitor {
 
             private final USwitchExpression mSwitchExpression;
-            private final PsiAnnotation mAnnotation;
             private final PsiAnnotationMemberValue[] mAllowedValues;
             private final List<PsiElement> mFields;
+            private final List<Integer> mSeenValues;
 
             private SwitchClauseChecker(USwitchExpression switchExpression,
-                    PsiAnnotation annotation, PsiAnnotationMemberValue[] allowedValues,
-                    List<PsiElement> fields) {
+                    PsiAnnotation annotation) {
 
                 mSwitchExpression = switchExpression;
-                mAnnotation = annotation;
-                mAllowedValues = allowedValues;
-                mFields = fields;
+
+                PsiAnnotationMemberValue value = annotation.findDeclaredAttributeValue(ATTR_VALUE);
+                if (value == null) {
+                    value = annotation.findDeclaredAttributeValue(null);
+                }
+
+                if (value instanceof PsiArrayInitializerMemberValue) {
+
+                    PsiArrayInitializerMemberValue array = (PsiArrayInitializerMemberValue)value;
+                    PsiAnnotationMemberValue[] allowedValues = array.getInitializers();
+
+                    List<PsiElement> fields = Lists.newArrayListWithCapacity(allowedValues.length);
+                    for (PsiAnnotationMemberValue allowedValue : allowedValues) {
+                        if (allowedValue instanceof PsiReferenceExpression) {
+                            PsiElement resolved = ((PsiReferenceExpression) allowedValue).resolve();
+                            if (resolved != null) {
+                                fields.add(resolved);
+                            }
+                        } else if (allowedValue instanceof PsiLiteral) {
+                            fields.add(allowedValue);
+                        }
+                    }
+
+                    mAllowedValues = allowedValues;
+                    mFields = fields;
+                    mSeenValues = Lists.newArrayListWithCapacity(allowedValues.length);
+                } else {
+                    mAllowedValues = null;
+                    mFields = null;
+                    mSeenValues = null;
+                }
             }
 
             @Override
             public boolean visitSwitchClauseExpression(USwitchClauseExpression node) {
+
+                if(mAllowedValues == null) {
+                    return false;
+                }
+
                 List<UExpression> caseValues = node.getCaseValues();
                 if(caseValues == null) {
                     return false;
@@ -1108,7 +942,12 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
                                 }
                             }
 
-                            if (!found) {
+                            if (found) {
+                                Integer cv = getConstantValue((PsiField) resolved);
+                                if (cv != null) {
+                                    mSeenValues.add(cv);
+                                }
+                            } else {
                                 List<String> list = computeFieldNames(mSwitchExpression, Arrays.asList(mAllowedValues));
                                 // Keep error message in sync with {@link #getMissingCases}
                                 String message = "Unexpected constant; expected one of: " + Joiner
@@ -1120,6 +959,37 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
                     }
                 }
                 return false;
+            }
+
+            public void reportMissingSwitchCases() {
+
+                if(mAllowedValues == null) {
+                    return;
+                }
+
+                // Any missing switch constants? Before we flag them, look to see if any
+                // of them have the same values: those can be omitted
+                if (!mFields.isEmpty()) {
+                    ListIterator<PsiElement> iterator = mFields.listIterator();
+                    while (iterator.hasNext()) {
+                        PsiElement next = iterator.next();
+                        if (next instanceof PsiField) {
+                            Integer cv = getConstantValue((PsiField)next);
+                            if (mSeenValues.contains(cv)) {
+                                iterator.remove();
+                            }
+                        }
+                    }
+                }
+
+                if (!mFields.isEmpty()) {
+                    List<String> list = computeFieldNames(mSwitchExpression, mFields);
+                    // Keep error message in sync with {@link #getMissingCases}
+                    String message = "Switch statement on an `int` with known associated constant "
+                            + "missing case " + Joiner.on(", ").join(list);
+                    Location location = mContext.getLocation(mSwitchExpression);
+                    mContext.report(SWITCH_TYPE_DEF, mSwitchExpression, location, message);
+                }
             }
         }
     }
