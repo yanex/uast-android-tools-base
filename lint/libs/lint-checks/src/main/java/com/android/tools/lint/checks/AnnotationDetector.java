@@ -54,6 +54,7 @@ import static com.android.tools.lint.detector.api.ResourceEvaluator.RES_SUFFIX;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.tools.lint.client.api.IssueRegistry;
+import com.android.tools.lint.client.api.JavaEvaluator;
 import com.android.tools.lint.client.api.UastLintUtils;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.ConstantEvaluator;
