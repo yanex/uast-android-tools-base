@@ -262,7 +262,7 @@ public class UElementVisitor {
             }
 
             final UFile uFile = (UFile) uElement;
-            
+
             try {
                 context.setUFile(uFile);
 
@@ -538,7 +538,18 @@ public class UElementVisitor {
     }
 
     private class DispatchPsiVisitor extends AbstractUastVisitor {
-        
+
+        @Override
+        public boolean visitAnnotation(UAnnotation node) {
+            List<VisitingDetector> list = mNodePsiTypeDetectors.get(UAnnotation.class);
+            if (list != null) {
+                for (VisitingDetector v : list) {
+                    v.getVisitor().visitAnnotation(node);
+                }
+            }
+            return super.visitAnnotation(node);
+        }
+
         @Override
         public boolean visitCatchClause(UCatchClause node) {
             List<VisitingDetector> list = mNodePsiTypeDetectors.get(UCatchClause.class);
@@ -637,7 +648,7 @@ public class UElementVisitor {
             }
             return super.visitLabeledExpression(node);
         }
-        
+
         @Override
         public boolean visitBlockExpression(UBlockExpression node) {
             List<VisitingDetector> list = mNodePsiTypeDetectors.get(UBlockExpression.class);
@@ -1097,7 +1108,7 @@ public class UElementVisitor {
                 if (resolvedConstructor == null) {
                     return;
                 }
-                
+
                 PsiClass resolvedClass = resolvedConstructor.getContainingClass();
                 if (resolvedClass != null) {
                     List<VisitingDetector> list = mConstructorDetectors.get(
@@ -1107,7 +1118,7 @@ public class UElementVisitor {
                             UastScanner javaPsiScanner = v.getUastScanner();
                             if (javaPsiScanner != null) {
                                 javaPsiScanner.visitConstructor(mContext,
-                                        v.getVisitor(), node, 
+                                        v.getVisitor(), node,
                                         mContext.getUastContext().getMethod(resolvedConstructor));
                             }
                         }
