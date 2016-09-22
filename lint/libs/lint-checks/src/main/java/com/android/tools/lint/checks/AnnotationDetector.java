@@ -75,31 +75,22 @@ import com.intellij.psi.PsiAnnotationMemberValue;
 import com.intellij.psi.PsiAnnotationOwner;
 import com.intellij.psi.PsiArrayInitializerMemberValue;
 import com.intellij.psi.PsiArrayType;
-import com.intellij.psi.PsiAssignmentExpression;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiClassType;
-import com.intellij.psi.PsiConditionalExpression;
 import com.intellij.psi.PsiDeclarationStatement;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiExpression;
-import com.intellij.psi.PsiExpressionStatement;
 import com.intellij.psi.PsiField;
 import com.intellij.psi.PsiJavaCodeReferenceElement;
 import com.intellij.psi.PsiLiteral;
 import com.intellij.psi.PsiLocalVariable;
 import com.intellij.psi.PsiMethod;
-import com.intellij.psi.PsiMethodCallExpression;
 import com.intellij.psi.PsiModifierList;
 import com.intellij.psi.PsiModifierListOwner;
 import com.intellij.psi.PsiNameValuePair;
 import com.intellij.psi.PsiParameter;
-import com.intellij.psi.PsiParenthesizedExpression;
-import com.intellij.psi.PsiReference;
 import com.intellij.psi.PsiReferenceExpression;
-import com.intellij.psi.PsiStatement;
-import com.intellij.psi.PsiSwitchStatement;
 import com.intellij.psi.PsiType;
-import com.intellij.psi.PsiTypeCastExpression;
 import com.intellij.psi.PsiVariable;
 import com.intellij.psi.util.PsiTreeUtil;
 
@@ -108,6 +99,7 @@ import org.jetbrains.uast.UCallExpression;
 import org.jetbrains.uast.UClass;
 import org.jetbrains.uast.UElement;
 import org.jetbrains.uast.UExpression;
+import org.jetbrains.uast.UIfExpression;
 import org.jetbrains.uast.ULiteralExpression;
 import org.jetbrains.uast.UParenthesizedExpression;
 import org.jetbrains.uast.USwitchClauseExpression;
@@ -574,131 +566,25 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
                         return annotation;
                     }
                 }
-                //} else if (node instanceof PsiConditionalExpression) {
-                //    PsiConditionalExpression expression = (PsiConditionalExpression) node;
-                //    if (expression.getThenExpression() != null) {
-                //        PsiAnnotation result = findIntDef(expression.getThenExpression());
-                //        if (result != null) {
-                //            return result;
-                //        }
-                //    }
-                //    if (expression.getElseExpression() != null) {
-                //        PsiAnnotation result = findIntDef(expression.getElseExpression());
-                //        if (result != null) {
-                //            return result;
-                //        }
-                //    }
+                } else if (expression instanceof UIfExpression) {
+                    UIfExpression ifExpression = (UIfExpression) expression;
+                    if (ifExpression.getThenExpression() != null) {
+                        PsiAnnotation result = findIntDefAnnotation(ifExpression.getThenExpression());
+                        if (result != null) {
+                            return result;
+                        }
+                    }
+                    if (ifExpression.getElseExpression() != null) {
+                        PsiAnnotation result = findIntDefAnnotation(ifExpression.getElseExpression());
+                        if (result != null) {
+                            return result;
+                        }
+                    }
             } else if (expression instanceof JavaUTypeCastExpression) {
                 return findIntDefAnnotation(((JavaUTypeCastExpression)expression).getOperand());
 
             } else if (expression instanceof UParenthesizedExpression) {
                 return findIntDefAnnotation(((UParenthesizedExpression) expression).getExpression());
-            }
-
-            return null;
-        }
-
-        /**
-         * Searches for the corresponding @IntDef annotation definition associated
-         * with a given node
-         */
-        @Nullable
-        private PsiAnnotation findIntDef(@NonNull PsiElement node) {
-            if (node instanceof PsiReferenceExpression) {
-                PsiElement resolved = ((PsiReference) node).resolve();
-                if (resolved instanceof PsiModifierListOwner) {
-                    PsiAnnotation[] annotations = mContext.getEvaluator().getAllAnnotations(
-                            (PsiModifierListOwner)resolved, true);
-                    PsiAnnotation annotation = SupportAnnotationDetector.findIntDef(
-                            filterRelevantAnnotations(mContext.getEvaluator(), annotations));
-                    if (annotation != null) {
-                        return annotation;
-                    }
-                }
-
-                if (resolved instanceof PsiLocalVariable) {
-                    PsiLocalVariable variable = (PsiLocalVariable) resolved;
-                    PsiStatement statement = PsiTreeUtil.getParentOfType(node, PsiStatement.class,
-                            false);
-                    if (statement != null) {
-                        PsiStatement prev = PsiTreeUtil.getPrevSiblingOfType(statement,
-                                PsiStatement.class);
-                        String targetName = variable.getName();
-                        if (targetName == null) {
-                            return null;
-                        }
-                        while (prev != null) {
-                            if (prev instanceof PsiDeclarationStatement) {
-                                for (PsiElement element : ((PsiDeclarationStatement) prev)
-                                        .getDeclaredElements()) {
-                                    if (variable.equals(element)) {
-                                        PsiExpression initializer = variable.getInitializer();
-                                        if (initializer != null) {
-                                            return findIntDef(initializer);
-                                        }
-                                        break;
-                                    }
-                                }
-                            } else if (prev instanceof PsiExpressionStatement) {
-                                PsiExpression expression = ((PsiExpressionStatement) prev)
-                                        .getExpression();
-                                if (expression instanceof PsiAssignmentExpression) {
-                                    PsiAssignmentExpression assign
-                                            = (PsiAssignmentExpression) expression;
-                                    PsiExpression lhs = assign.getLExpression();
-                                    if (lhs instanceof PsiReferenceExpression) {
-                                        PsiReferenceExpression reference = (PsiReferenceExpression) lhs;
-                                        if (targetName.equals(reference.getReferenceName()) &&
-                                                reference.getQualifier() == null) {
-                                            PsiExpression rExpression = assign.getRExpression();
-                                            if (rExpression != null) {
-                                                return findIntDef(rExpression);
-                                            }
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-                            prev = PsiTreeUtil.getPrevSiblingOfType(prev,
-                                    PsiStatement.class);
-                        }
-                    }
-
-                }
-            } else if (node instanceof PsiMethodCallExpression) {
-                PsiMethod method = ((PsiMethodCallExpression) node).resolveMethod();
-                if (method != null) {
-                    PsiAnnotation[] annotations = mContext.getEvaluator().getAllAnnotations(method, true);
-                    PsiAnnotation annotation = SupportAnnotationDetector.findIntDef(
-                            filterRelevantAnnotations(mContext.getEvaluator(), annotations));
-                    if (annotation != null) {
-                        return annotation;
-                    }
-                }
-            } else if (node instanceof PsiConditionalExpression) {
-                PsiConditionalExpression expression = (PsiConditionalExpression) node;
-                if (expression.getThenExpression() != null) {
-                    PsiAnnotation result = findIntDef(expression.getThenExpression());
-                    if (result != null) {
-                        return result;
-                    }
-                }
-                if (expression.getElseExpression() != null) {
-                    PsiAnnotation result = findIntDef(expression.getElseExpression());
-                    if (result != null) {
-                        return result;
-                    }
-                }
-            } else if (node instanceof PsiTypeCastExpression) {
-                PsiTypeCastExpression cast = (PsiTypeCastExpression) node;
-                if (cast.getOperand() != null) {
-                    return findIntDef(cast.getOperand());
-                }
-            } else if (node instanceof PsiParenthesizedExpression) {
-                PsiParenthesizedExpression expression = (PsiParenthesizedExpression) node;
-                if (expression.getExpression() != null) {
-                    return findIntDef(expression.getExpression());
-                }
             }
 
             return null;
@@ -832,6 +718,8 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
             private final List<PsiElement> mFields;
             private final List<Integer> mSeenValues;
 
+            private boolean mReported = false;
+
             private SwitchClauseChecker(USwitchExpression switchExpression,
                     PsiAnnotation annotation) {
 
@@ -872,6 +760,10 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
             @Override
             public boolean visitSwitchClauseExpression(USwitchClauseExpression node) {
 
+                if(mReported) {
+                    return false;
+                }
+
                 if(mAllowedValues == null) {
                     return false;
                 }
@@ -891,7 +783,7 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
                                 .on(", ").join(list);
                         mContext.report(SWITCH_TYPE_DEF, caseValue,
                                 mContext.getLocation(caseValue), message);
-                        return false; // Don't look for other missing typedef constants since you might
+                        mReported = true; // Don't look for other missing typedef constants since you might
                         // have aliased with value
                     } else if (caseValue instanceof UReferenceExpression) { // default case can have null expression
                         PsiElement resolved = ((UReferenceExpression) caseValue).resolve();
@@ -952,7 +844,7 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
                                 // Keep error message in sync with {@link #getMissingCases}
                                 String message = "Unexpected constant; expected one of: " + Joiner
                                         .on(", ").join(list);
-                                Location location = mContext.getLocation(caseValue);
+                                Location location = mContext.getUastNameLocation(caseValue);
                                 mContext.report(SWITCH_TYPE_DEF, caseValue, location, message);
                             }
                         }
@@ -962,6 +854,10 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
             }
 
             public void reportMissingSwitchCases() {
+
+                if(mReported) {
+                    return;
+                }
 
                 if(mAllowedValues == null) {
                     return;
@@ -987,7 +883,7 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
                     // Keep error message in sync with {@link #getMissingCases}
                     String message = "Switch statement on an `int` with known associated constant "
                             + "missing case " + Joiner.on(", ").join(list);
-                    Location location = mContext.getLocation(mSwitchExpression);
+                    Location location = mContext.getUastNameLocation(mSwitchExpression);
                     mContext.report(SWITCH_TYPE_DEF, mSwitchExpression, location, message);
                 }
             }
@@ -1018,45 +914,6 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
                     PsiClass containingClass = field.getContainingClass();
                     if (containingClass != null && !containingClass.equals(clz.getPsi())) {
                         name = containingClass.getName() + '.' + field.getName();
-                    }
-                }
-                list.add('`' + name + '`');
-            }
-        }
-        Collections.sort(list);
-        return list;
-    }
-
-    @NonNull
-    private static List<String> computeFieldNames(@NonNull PsiSwitchStatement node,
-            Iterable<?> allowedValues) {
-        List<String> list = Lists.newArrayList();
-        for (Object o : allowedValues) {
-            if (o instanceof PsiReferenceExpression) {
-                PsiElement resolved = ((PsiReferenceExpression) o).resolve();
-                if (resolved != null) {
-                    o = resolved;
-                }
-            } else if (o instanceof PsiLiteral) {
-                list.add("`" + ((PsiLiteral) o).getValue() + '`');
-                continue;
-            }
-
-            if (o instanceof PsiField) {
-                PsiField field = (PsiField) o;
-                // Only include class name if necessary
-                String name = field.getName();
-                PsiClass clz = PsiTreeUtil.getParentOfType(node, PsiClass.class, true);
-                if (clz != null) {
-                    PsiClass containingClass = field.getContainingClass();
-                    if (containingClass != null && !containingClass.equals(clz)) {
-
-                        //if (Objects.equal(containingClass.getPackage(),
-                        //        ((ResolvedClass) resolved).getPackage())) {
-                        //    name = containingClass.getSimpleName() + '.' + field.getName();
-                        //} else {
-                        name = containingClass.getName() + '.' + field.getName();
-                        //}
                     }
                 }
                 list.add('`' + name + '`');
