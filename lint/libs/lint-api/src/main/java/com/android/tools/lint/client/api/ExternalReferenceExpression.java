@@ -14,22 +14,26 @@
  * limitations under the License.
  */
 
-package com.android.tools.lint.psiNew;
+package com.android.tools.lint.client.api;
 
 import com.android.annotations.Nullable;
-import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiElement;
 
+import org.jetbrains.uast.UDeclaration;
 import org.jetbrains.uast.UElement;
 import org.jetbrains.uast.UastUtils;
 
 public interface ExternalReferenceExpression {
     @Nullable
-    PsiElement resolve(Project project);
+    PsiElement resolve(PsiElement context);
 
     @Nullable
     static PsiElement resolve(ExternalReferenceExpression expression, UElement context) {
-        Project project = UastUtils.getLanguagePlugin(context).getProject();
-        return expression.resolve(project);
+        UDeclaration declaration = UastUtils.getParentOfType(context, UDeclaration.class);
+        if (declaration == null) {
+            return null;
+        }
+
+        return expression.resolve(declaration.getPsi());
     }
 }

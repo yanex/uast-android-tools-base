@@ -53,6 +53,7 @@ import static com.android.tools.lint.detector.api.ResourceEvaluator.RES_SUFFIX;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
+import com.android.tools.lint.client.api.ExternalReferenceExpression;
 import com.android.tools.lint.client.api.IssueRegistry;
 import com.android.tools.lint.client.api.JavaEvaluator;
 import com.android.tools.lint.client.api.UastLintUtils;
@@ -738,7 +739,14 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
 
                     List<PsiElement> fields = Lists.newArrayListWithCapacity(allowedValues.length);
                     for (PsiAnnotationMemberValue allowedValue : allowedValues) {
-                        if (allowedValue instanceof PsiReferenceExpression) {
+                        if (allowedValue instanceof ExternalReferenceExpression) {
+                            ExternalReferenceExpression externalRef =
+                                    (ExternalReferenceExpression) allowedValue;
+                            PsiElement resolved = ExternalReferenceExpression.resolve(externalRef, switchExpression);
+                            if (resolved instanceof PsiField) {
+                                fields.add(resolved);
+                            }
+                        } else if (allowedValue instanceof PsiReferenceExpression) {
                             PsiElement resolved = ((PsiReferenceExpression) allowedValue).resolve();
                             if (resolved != null) {
                                 fields.add(resolved);
@@ -818,14 +826,15 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
                             }
                             if (!found) {
                                 // Look for local alias
-                                PsiExpression initializer = ((PsiField) resolved).getInitializer();
-                                if (initializer instanceof PsiReferenceExpression) {
-                                    resolved = ((UReferenceExpression) caseValue).resolve();
+                                UExpression initializer = mContext.getUastContext()
+                                        .getInitializerBody(((PsiField) resolved));
+                                if (initializer instanceof UReferenceExpression) {
+                                    resolved = ((UReferenceExpression) initializer).resolve();
                                     if (resolved instanceof PsiField) {
                                         iterator = mFields.listIterator();
                                         while (iterator.hasNext()) {
                                             PsiElement field = iterator.next();
-                                            if (field.equals(initializer)) {
+                                            if (field.equals(resolved)) {
                                                 iterator.remove();
                                                 found = true;
                                                 break;
@@ -884,19 +893,25 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
                     // Keep error message in sync with {@link #getMissingCases}
                     String message = "Switch statement on an `int` with known associated constant "
                             + "missing case " + Joiner.on(", ").join(list);
-                    Location location = mContext.getUastNameLocation(mSwitchExpression);
+                    Location location = mContext.getLocation(mSwitchExpression.getSwitchIdentifier());
                     mContext.report(SWITCH_TYPE_DEF, mSwitchExpression, location, message);
                 }
             }
         }
     }
 
-    private static List<String> computeFieldNames(@NonNull USwitchExpression node,
-            Iterable<?> allowedValues) {
+    private static List<String> computeFieldNames(
+            @NonNull USwitchExpression node, Iterable<?> allowedValues) {
 
         List<String> list = Lists.newArrayList();
         for (Object o : allowedValues) {
-            if (o instanceof PsiReferenceExpression) {
+            if (o instanceof ExternalReferenceExpression) {
+                ExternalReferenceExpression externalRef = (ExternalReferenceExpression) o;
+                PsiElement resolved = ExternalReferenceExpression.resolve(externalRef, node);
+                if (resolved != null) {
+                    o = resolved;
+                }
+            } else if (o instanceof PsiReferenceExpression) {
                 PsiElement resolved = ((PsiReferenceExpression) o).resolve();
                 if (resolved != null) {
                     o = resolved;

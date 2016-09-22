@@ -16,17 +16,15 @@
 
 package com.android.tools.lint.psiNew;
 
-import static com.intellij.psi.search.GlobalSearchScope.projectScope;
-
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.intellij.openapi.project.Project;
+import com.android.tools.lint.client.api.ExternalReferenceExpression;
 import com.intellij.psi.JavaPsiFacade;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiElementVisitor;
+import com.intellij.psi.PsiExpression;
 import com.intellij.psi.PsiField;
-import com.intellij.psi.PsiJavaCodeReferenceElement;
 import com.intellij.psi.PsiReferenceExpression;
 
 public class ExternalPsiReferenceExpressionMemberValue extends DumbPsiReferenceExpression
@@ -57,11 +55,16 @@ public class ExternalPsiReferenceExpressionMemberValue extends DumbPsiReferenceE
 
     @Nullable
     @Override
-    public PsiElement resolve(Project project) {
-        PsiJavaCodeReferenceElement reference = JavaPsiFacade.getInstance(project)
+    public PsiElement resolve(PsiElement context) {
+        PsiExpression reference = JavaPsiFacade.getInstance(context.getProject())
                 .getElementFactory()
-                .createFQClassNameReferenceElement(mFullyQualifiedName, projectScope(project));
-        return reference.resolve();
+                .createExpressionFromText(mFullyQualifiedName, context);
+
+        if (reference instanceof PsiReferenceExpression) {
+            return ((PsiReferenceExpression) reference).resolve();
+        }
+
+        return null;
     }
 
     @Override
