@@ -117,7 +117,7 @@ public class AssertDetector extends Detector implements Detector.UastScanner {
                 }
                 String message
                         = "Assertions are unreliable. Use `BuildConfig.DEBUG` conditional checks instead.";
-                context.report(ISSUE, node, context.getLocation(node), message);
+                context.report(ISSUE, node, context.getLocation(assertion), message);
             }
         };
 
