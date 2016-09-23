@@ -568,20 +568,20 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
                         return annotation;
                     }
                 }
-                } else if (expression instanceof UIfExpression) {
-                    UIfExpression ifExpression = (UIfExpression) expression;
-                    if (ifExpression.getThenExpression() != null) {
-                        PsiAnnotation result = findIntDefAnnotation(ifExpression.getThenExpression());
-                        if (result != null) {
-                            return result;
-                        }
+            } else if (expression instanceof UIfExpression) {
+                UIfExpression ifExpression = (UIfExpression) expression;
+                if (ifExpression.getThenExpression() != null) {
+                    PsiAnnotation result = findIntDefAnnotation(ifExpression.getThenExpression());
+                    if (result != null) {
+                        return result;
                     }
-                    if (ifExpression.getElseExpression() != null) {
-                        PsiAnnotation result = findIntDefAnnotation(ifExpression.getElseExpression());
-                        if (result != null) {
-                            return result;
-                        }
+                }
+                if (ifExpression.getElseExpression() != null) {
+                    PsiAnnotation result = findIntDefAnnotation(ifExpression.getElseExpression());
+                    if (result != null) {
+                        return result;
                     }
+                }
             } else if (expression instanceof JavaUTypeCastExpression) {
                 return findIntDefAnnotation(((JavaUTypeCastExpression)expression).getOperand());
 
@@ -769,20 +769,20 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
             @Override
             public boolean visitSwitchClauseExpression(USwitchClauseExpression node) {
 
-                if(mReported) {
+                if (mReported) {
                     return false;
                 }
 
-                if(mAllowedValues == null) {
+                if (mAllowedValues == null) {
                     return false;
                 }
 
                 List<UExpression> caseValues = node.getCaseValues();
-                if(caseValues == null) {
+                if (caseValues == null) {
                     return false;
                 }
 
-                for(UExpression caseValue : caseValues) {
+                for (UExpression caseValue : caseValues) {
                     if (caseValue instanceof ULiteralExpression) {
                         // Report warnings if you specify hardcoded constants.
                         // It's the wrong thing to do.
@@ -865,11 +865,11 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
 
             public void reportMissingSwitchCases() {
 
-                if(mReported) {
+                if (mReported) {
                     return;
                 }
 
-                if(mAllowedValues == null) {
+                if (mAllowedValues == null) {
                     return;
                 }
 
