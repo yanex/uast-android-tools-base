@@ -84,6 +84,7 @@ import com.android.tools.lint.detector.api.JavaContext;
 import com.android.tools.lint.detector.api.LintUtils;
 import com.android.tools.lint.detector.api.Location;
 import com.android.tools.lint.detector.api.Location.SearchHints;
+import com.android.tools.lint.detector.api.Position;
 import com.android.tools.lint.detector.api.ResourceXmlDetector;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
@@ -165,6 +166,7 @@ import org.w3c.dom.NodeList;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.EnumSet;
@@ -2085,12 +2087,61 @@ public class ApiDetector extends ResourceXmlDetector
             }
 
             for (UCatchClause catchClause : statement.getCatchClauses()) {
+
+                // Special case reflective operation exception which can be implicitly used
+                // with multi-catches: see issue 153406
+                int minSdk = getMinSdk(mContext);
+                if(minSdk < 19 && isMultiCatchReflectiveOperationException(catchClause)) {
+                    String message = String.format("Multi-catch with these reflection exceptions requires API level 19 (current min is %d) " +
+                                    "because they get compiled to the common but new super type `ReflectiveOperationException`. " +
+                                    "As a workaround either create individual catch statements, or catch `Exception`.",
+                            minSdk);
+
+                    mContext.report(UNSUPPORTED, getCatchParametersLocation(mContext, catchClause), message);
+                    continue;
+                }
+
                 for (UTypeReferenceExpression typeReference : catchClause.getTypeReferences()) {
                     checkCatchTypeElement(statement, typeReference, typeReference.getType());
                 }
             }
             
             return super.visitTryExpression(statement);
+        }
+
+        private Location getCatchParametersLocation(JavaContext context, UCatchClause catchClause) {
+            List<UTypeReferenceExpression> types = catchClause.getTypeReferences();
+            if(types.size() < 1) {
+                return Location.NONE;
+            }
+
+            Location first = context.getLocation(types.get(0));
+            if(types.size() < 2) {
+                return first;
+            }
+
+            Location last = context.getLocation(types.get(types.size() - 1));
+            File file = first.getFile();
+            Position start = first.getStart();
+            Position end = last.getEnd();
+
+            if(start == null || end == null) {
+                return Location.create(file);
+            }
+
+            return Location.create(file, start, end);
+        }
+
+        private boolean isMultiCatchReflectiveOperationException(UCatchClause catchClause) {
+            List<PsiType> types = catchClause.getTypes();
+            return types.size() >= 2 && types.stream()
+                    .allMatch(this::isSubclassOfReflectiveOperationException);
+
+        }
+
+        private boolean isSubclassOfReflectiveOperationException(PsiType t) {
+            return Arrays.stream(t.getSuperTypes())
+                    .anyMatch(st -> "java.lang.ReflectiveOperationException".equals(st.getCanonicalText()));
         }
 
         private void checkCatchTypeElement(@NonNull UTryExpression statement,
@@ -2119,15 +2170,6 @@ public class ApiDetector extends ResourceXmlDetector
                 location = mContext.getLocation(typeReference);
                 String fqcn = resolved.getQualifiedName();
                 String message = String.format("Class requires API level %1$d (current min is %2$d): %3$s", api, minSdk, fqcn);
-
-                // Special case reflective operation exception which can be implicitly used
-                // with multi-catches: see issue 153406
-                if (api == 19 && "ReflectiveOperationException".equals(fqcn)) {
-                    message = String.format("Multi-catch with these reflection exceptions requires API level 19 (current min is %2$d) " +
-                                    "because they get compiled to the common but new super type `ReflectiveOperationException`. " +
-                                    "As a workaround either create individual catch statements, or catch `Exception`.",
-                            api, minSdk);
-                }
                 mContext.report(UNSUPPORTED, location, message);
             }
         }
