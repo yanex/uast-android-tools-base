@@ -51,7 +51,6 @@ import static com.android.tools.lint.checks.RtlDetector.ATTR_SUPPORTS_RTL;
 import static com.android.tools.lint.detector.api.ClassContext.getFqcn;
 import static com.android.tools.lint.detector.api.LintUtils.getNextInstruction;
 import static com.android.tools.lint.detector.api.Location.SearchDirection.BACKWARD;
-import static com.android.tools.lint.detector.api.Location.SearchDirection.EOL_NEAREST;
 import static com.android.tools.lint.detector.api.Location.SearchDirection.FORWARD;
 import static com.android.tools.lint.detector.api.Location.SearchDirection.NEAREST;
 import static com.android.utils.SdkUtils.getResourceFieldName;
@@ -90,7 +89,6 @@ import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
 import com.android.tools.lint.detector.api.TextFormat;
 import com.android.tools.lint.detector.api.XmlContext;
-import com.google.common.collect.Lists;
 import com.intellij.psi.PsiAnnotation;
 import com.intellij.psi.PsiAnnotationMemberValue;
 import com.intellij.psi.PsiAnnotationParameterList;
@@ -151,7 +149,6 @@ import org.objectweb.asm.tree.FieldNode;
 import org.objectweb.asm.tree.InsnList;
 import org.objectweb.asm.tree.IntInsnNode;
 import org.objectweb.asm.tree.JumpInsnNode;
-import org.objectweb.asm.tree.LabelNode;
 import org.objectweb.asm.tree.LdcInsnNode;
 import org.objectweb.asm.tree.LocalVariableNode;
 import org.objectweb.asm.tree.LookupSwitchInsnNode;
@@ -939,33 +936,6 @@ public class ApiDetector extends ResourceXmlDetector
             if (!checkCalls) {
                 continue;
             }
-
-            List tryCatchBlocks = method.tryCatchBlocks;
-            // single-catch blocks are already handled by an AST level check in ApiVisitor
-            if (tryCatchBlocks.size() > 1) {
-                List<String> checked = Lists.newArrayList();
-                for (Object o : tryCatchBlocks) {
-                    TryCatchBlockNode tryCatchBlock = (TryCatchBlockNode) o;
-                    String className = tryCatchBlock.type;
-                    if (className == null || checked.contains(className)) {
-                        continue;
-                    }
-
-                    int api = mApiDatabase.getClassVersion(className);
-                    if (api > minSdk) {
-                        // Find instruction node
-                        LabelNode label = tryCatchBlock.handler;
-                        String fqcn = getFqcn(className);
-                        String message = String.format(
-                                "Class requires API level %1$d (current min is %2$d): `%3$s`",
-                                api, minSdk, fqcn);
-                        report(context, message, label, method,
-                                className.substring(className.lastIndexOf('/') + 1), null,
-                                SearchHints.create(EOL_NEAREST).matchJavaSymbol());
-                    }
-                }
-            }
-
 
             if (CHECK_DECLARATIONS) {
                 // Check types in parameter list and types of local variables
