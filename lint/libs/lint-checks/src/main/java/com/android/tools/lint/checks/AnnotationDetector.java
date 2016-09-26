@@ -240,6 +240,7 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
     }
 
     private class AnnotationChecker extends AbstractUastVisitor {
+
         private final JavaContext mContext;
 
         private AnnotationChecker(JavaContext context) {
@@ -505,13 +506,17 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
             if (condition != null && PsiType.INT.equals(condition.getExpressionType())) {
                 PsiAnnotation annotation = findIntDefAnnotation(condition);
                 if (annotation != null) {
+                    PsiAnnotationMemberValue value =
+                            annotation.findDeclaredAttributeValue(ATTR_VALUE);
+                    if (value == null) {
+                        value = annotation.findDeclaredAttributeValue(null);
+                    }
 
-                    SwitchClauseChecker switchClauseChecker =
-                            new SwitchClauseChecker(switchExpression, annotation);
-
-                    switchExpression.accept(switchClauseChecker);
-
-                    switchClauseChecker.reportMissingSwitchCases();
+                    if (value instanceof PsiArrayInitializerMemberValue) {
+                        PsiAnnotationMemberValue[] allowedValues =
+                                ((PsiArrayInitializerMemberValue)value).getInitializers();
+                        switchExpression.accept(new SwitchChecker(switchExpression, allowedValues));
+                    }
                 }
             }
             return false;
@@ -534,7 +539,6 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
         @Nullable
         private PsiAnnotation findIntDefAnnotation(@NonNull UExpression expression) {
             if (expression instanceof UReferenceExpression) {
-
                 PsiElement resolved = ((UReferenceExpression) expression).resolve();
 
                 if (resolved instanceof PsiModifierListOwner) {
@@ -561,7 +565,8 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
             } else if (expression instanceof UCallExpression) {
                 PsiMethod method = ((UCallExpression) expression).resolve();
                 if (method != null) {
-                    PsiAnnotation[] annotations = mContext.getEvaluator().getAllAnnotations(method, true);
+                    PsiAnnotation[] annotations = mContext.getEvaluator()
+                            .getAllAnnotations(method, true);
                     PsiAnnotation annotation = SupportAnnotationDetector.findIntDef(
                             filterRelevantAnnotations(mContext.getEvaluator(), annotations));
                     if (annotation != null) {
@@ -713,7 +718,7 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
             return true;
         }
 
-        private class SwitchClauseChecker extends AbstractUastVisitor {
+        private class SwitchChecker extends AbstractUastVisitor {
 
             private final USwitchExpression mSwitchExpression;
             private final PsiAnnotationMemberValue[] mAllowedValues;
@@ -722,53 +727,38 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
 
             private boolean mReported = false;
 
-            private SwitchClauseChecker(USwitchExpression switchExpression,
-                    PsiAnnotation annotation) {
-
+            private SwitchChecker(USwitchExpression switchExpression,
+                    PsiAnnotationMemberValue[] allowedValues) {
                 mSwitchExpression = switchExpression;
+                mAllowedValues = allowedValues;
 
-                PsiAnnotationMemberValue value = annotation.findDeclaredAttributeValue(ATTR_VALUE);
-                if (value == null) {
-                    value = annotation.findDeclaredAttributeValue(null);
-                }
+                mFields = Lists.newArrayListWithCapacity(allowedValues.length);
+                for (PsiAnnotationMemberValue allowedValue : allowedValues) {
+                    if (allowedValue instanceof ExternalReferenceExpression) {
+                        ExternalReferenceExpression externalRef =
+                                (ExternalReferenceExpression) allowedValue;
 
-                if (value instanceof PsiArrayInitializerMemberValue) {
+                        PsiElement resolved = ExternalReferenceExpression.resolve(externalRef,
+                                switchExpression);
 
-                    PsiArrayInitializerMemberValue array = (PsiArrayInitializerMemberValue)value;
-                    PsiAnnotationMemberValue[] allowedValues = array.getInitializers();
-
-                    List<PsiElement> fields = Lists.newArrayListWithCapacity(allowedValues.length);
-                    for (PsiAnnotationMemberValue allowedValue : allowedValues) {
-                        if (allowedValue instanceof ExternalReferenceExpression) {
-                            ExternalReferenceExpression externalRef =
-                                    (ExternalReferenceExpression) allowedValue;
-                            PsiElement resolved = ExternalReferenceExpression.resolve(externalRef, switchExpression);
-                            if (resolved instanceof PsiField) {
-                                fields.add(resolved);
-                            }
-                        } else if (allowedValue instanceof PsiReferenceExpression) {
-                            PsiElement resolved = ((PsiReferenceExpression) allowedValue).resolve();
-                            if (resolved != null) {
-                                fields.add(resolved);
-                            }
-                        } else if (allowedValue instanceof PsiLiteral) {
-                            fields.add(allowedValue);
+                        if (resolved instanceof PsiField) {
+                            mFields.add(resolved);
                         }
+                    } else if (allowedValue instanceof PsiReferenceExpression) {
+                        PsiElement resolved = ((PsiReferenceExpression) allowedValue).resolve();
+                        if (resolved != null) {
+                            mFields.add(resolved);
+                        }
+                    } else if (allowedValue instanceof PsiLiteral) {
+                        mFields.add(allowedValue);
                     }
-
-                    mAllowedValues = allowedValues;
-                    mFields = fields;
-                    mSeenValues = Lists.newArrayListWithCapacity(allowedValues.length);
-                } else {
-                    mAllowedValues = null;
-                    mFields = null;
-                    mSeenValues = null;
                 }
+
+                mSeenValues = Lists.newArrayListWithCapacity(allowedValues.length);
             }
 
             @Override
             public boolean visitSwitchClauseExpression(USwitchClauseExpression node) {
-
                 if (mReported) {
                     return false;
                 }
@@ -786,14 +776,17 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
                     if (caseValue instanceof ULiteralExpression) {
                         // Report warnings if you specify hardcoded constants.
                         // It's the wrong thing to do.
-                        List<String> list = computeFieldNames(mSwitchExpression, Arrays.asList(mAllowedValues));
+                        List<String> list = computeFieldNames(mSwitchExpression,
+                                Arrays.asList(mAllowedValues));
                         // Keep error message in sync with {@link #getMissingCases}
                         String message = "Don't use a constant here; expected one of: " + Joiner
                                 .on(", ").join(list);
                         mContext.report(SWITCH_TYPE_DEF, caseValue,
                                 mContext.getLocation(caseValue), message);
-                        mReported = true; // Don't look for other missing typedef constants since you might
+                        // Don't look for other missing typedef constants since you might
                         // have aliased with value
+                        mReported = true;
+
                     } else if (caseValue instanceof UReferenceExpression) { // default case can have null expression
                         PsiElement resolved = ((UReferenceExpression) caseValue).resolve();
                         if (resolved == null) {
@@ -850,7 +843,8 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
                                     mSeenValues.add(cv);
                                 }
                             } else {
-                                List<String> list = computeFieldNames(mSwitchExpression, Arrays.asList(mAllowedValues));
+                                List<String> list = computeFieldNames(mSwitchExpression,
+                                        Arrays.asList(mAllowedValues));
                                 // Keep error message in sync with {@link #getMissingCases}
                                 String message = "Unexpected constant; expected one of: " + Joiner
                                         .on(", ").join(list);
@@ -863,8 +857,13 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
                 return false;
             }
 
-            public void reportMissingSwitchCases() {
+            @Override
+            public void afterVisitSwitchExpression(USwitchExpression node) {
+                reportMissingSwitchCases();
+                super.afterVisitSwitchExpression(node);
+            }
 
+            private void reportMissingSwitchCases() {
                 if (mReported) {
                     return;
                 }
