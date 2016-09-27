@@ -760,16 +760,16 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
             @Override
             public boolean visitSwitchClauseExpression(USwitchClauseExpression node) {
                 if (mReported) {
-                    return false;
+                    return true;
                 }
 
                 if (mAllowedValues == null) {
-                    return false;
+                    return true;
                 }
 
                 List<UExpression> caseValues = node.getCaseValues();
                 if (caseValues == null) {
-                    return false;
+                    return true;
                 }
 
                 for (UExpression caseValue : caseValues) {
@@ -792,7 +792,7 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
                         if (resolved == null) {
                             // If there are compilation issues (e.g. user is editing code) we
                             // can't be certain, so don't flag anything.
-                            return false;
+                            return true;
                         }
                         if (resolved instanceof PsiField) {
                             // We can't just do
@@ -854,7 +854,7 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
                         }
                     }
                 }
-                return false;
+                return true;
             }
 
             @Override
