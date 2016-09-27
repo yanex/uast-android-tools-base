@@ -2136,10 +2136,10 @@ public class ApiDetector extends ResourceXmlDetector
                     return;
                 }
 
-                Location location;
-                location = mContext.getLocation(typeReference);
+                Location location = mContext.getLocation(typeReference);
                 String fqcn = resolved.getQualifiedName();
-                String message = String.format("Class requires API level %1$d (current min is %2$d): %3$s", api, minSdk, fqcn);
+                String message = String.format("Class requires API level %1$d (current min is %2$d): %3$s",
+                        api, minSdk, fqcn);
                 mContext.report(UNSUPPORTED, location, message);
             }
         }
@@ -2504,55 +2504,98 @@ public class ApiDetector extends ResourceXmlDetector
         }
     }
 
-    private static boolean isPrecededByVersionCheckExit(
-            UElement element, int api, JavaContext context) {
-        UElement current = UastUtils.getParentOfType(element, UExpression.class);
-        if (current != null) {
-            UElement prev = getPreviousStatement(current);
-            if (prev == null) {
-                //noinspection unchecked
-                current = UastUtils.getParentOfType(current, UExpression.class, true,
-                        UMethod.class, UClass.class);
-            } else {
-                current = prev;
-            }
+    private static class VersionCheckWithExitFinder extends AbstractUastVisitor {
+
+        private final UExpression mExpression;
+        private final UElement mEndElement;
+        private final int mApi;
+        private final JavaContext mContext;
+
+        private boolean mFound = false;
+        private boolean mDone = false;
+
+        public VersionCheckWithExitFinder(UExpression expression, UElement endElement,
+                int api, JavaContext context) {
+            mExpression = expression;
+
+            mEndElement = endElement;
+            mApi = api;
+            mContext = context;
         }
-        while (current != null) {
-            if (current instanceof UIfExpression) {
-                UIfExpression ifStatement = (UIfExpression)current;
-                UExpression thenBranch = ifStatement.getThenExpression();
-                UExpression elseBranch = ifStatement.getElseExpression();
-                if (thenBranch != null) {
-                    Boolean level = isVersionCheckConditional(api, thenBranch, ifStatement, context);
-                    //noinspection VariableNotUsedInsideIf
-                    if (level != null) {
-                        // See if the body does an immediate return
-                        if (isUnconditionalReturn(thenBranch)) {
-                            return true;
-                        }
-                    }
-                }
-                if (elseBranch != null) {
-                    Boolean level = isVersionCheckConditional(api, elseBranch, ifStatement, context);
-                    //noinspection VariableNotUsedInsideIf
-                    if (level != null) {
-                        if (isUnconditionalReturn(elseBranch)) {
-                            return true;
-                        }
+
+        @Override
+        public boolean visitElement(UElement node) {
+            if(mDone) {
+                return true;
+            }
+
+            if (node.equals(mEndElement)) {
+                mDone = true;
+            }
+
+            return mDone || !mExpression.equals(node);
+        }
+
+        @Override
+        public boolean visitIfExpression(UIfExpression ifStatement) {
+
+            if(mDone) {
+                return true;
+            }
+
+            UExpression thenBranch = ifStatement.getThenExpression();
+            UExpression elseBranch = ifStatement.getElseExpression();
+
+            if (thenBranch != null) {
+                Boolean level = isVersionCheckConditional(mApi, thenBranch, ifStatement, mContext);
+                //noinspection VariableNotUsedInsideIf
+                if (level != null) {
+                    // See if the body does an immediate return
+                    if (isUnconditionalReturn(thenBranch)) {
+                        mFound = true;
+                        mDone = true;
                     }
                 }
             }
-            UElement prev = getPreviousStatement(current);
-            if (prev == null) {
-                //noinspection unchecked
-                current = UastUtils.getParentOfType(current, UExpression.class, true,
-                        UMethod.class, UClass.class);
-                if (current == null) {
-                    return false;
+
+            if (elseBranch != null) {
+                Boolean level = isVersionCheckConditional(mApi, elseBranch, ifStatement, mContext);
+                //noinspection VariableNotUsedInsideIf
+                if (level != null) {
+                    if (isUnconditionalReturn(elseBranch)) {
+                        mFound = true;
+                        mDone = true;
+                    }
                 }
-            } else {
-                current = prev;
             }
+
+            return true;
+        }
+
+        public boolean found() {
+            return mFound;
+        }
+    }
+
+    private static boolean isPrecededByVersionCheckExit(UElement element, int api,
+            JavaContext context) {
+        //noinspection unchecked
+        UExpression currentExpression = UastUtils.getParentOfType(element, UExpression.class,
+                true, UMethod.class, UClass.class);
+
+        while(currentExpression != null) {
+            VersionCheckWithExitFinder visitor = new VersionCheckWithExitFinder(
+                    currentExpression, element, api, context);
+            currentExpression.accept(visitor);
+
+            if (visitor.found()) {
+                return true;
+            }
+
+            element = currentExpression;
+            //noinspection unchecked
+            currentExpression = UastUtils.getParentOfType(currentExpression, UExpression.class,
+                    true, UMethod.class, UClass.class);
         }
 
         return false;
@@ -2566,16 +2609,6 @@ public class ApiDetector extends ResourceXmlDetector
             }
         }
         return statement instanceof UReturnExpression;
-    }
-
-
-    @Nullable
-    public static UElement getPreviousStatement(UElement element) {
-        //TODO
-        return null;
-        //final PsiElement prevStatement = PsiTreeUtil.skipSiblingsBackward(element,
-        //        PsiWhiteSpace.class, PsiComment.class);
-        //return prevStatement instanceof PsiStatement ? (PsiStatement)prevStatement : null;
     }
 
     public static boolean isWithinVersionCheckConditional(
