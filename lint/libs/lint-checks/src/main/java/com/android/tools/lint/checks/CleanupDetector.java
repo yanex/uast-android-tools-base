@@ -20,6 +20,8 @@ import static com.android.SdkConstants.CLASS_CONTENTPROVIDER;
 import static com.android.SdkConstants.CLASS_CONTEXT;
 import static com.android.tools.lint.client.api.JavaEvaluator.isSubClassOf;
 import static com.android.tools.lint.detector.api.LintUtils.skipParentheses;
+import static org.jetbrains.uast.UastUtils.getOutermostQualified;
+import static org.jetbrains.uast.UastUtils.getQualifiedChain;
 import static org.jetbrains.uast.UastUtils.getParentOfType;
 
 import com.android.SdkConstants;
@@ -354,7 +356,7 @@ public class CleanupDetector extends Detector implements Detector.UastScanner {
                     recycleName);
         }
 
-        UElement locationNode = node instanceof UCallExpression ? node.getMethodIdentifier() : node;
+        UElement locationNode = node.getMethodIdentifier();
         if (locationNode == null) {
             locationNode = node;
         }
@@ -380,7 +382,7 @@ public class CleanupDetector extends Detector implements Detector.UastScanner {
                     @Override
                     protected boolean isCleanupCall(@NonNull UCallExpression call) {
                         if (isTransactionCommitMethodCall(mContext, call)) {
-                            List<UExpression> chain = UastUtils.getQualifiedChain(call);
+                            List<UExpression> chain = getQualifiedChain(getOutermostQualified(call));
                             if (chain.isEmpty()) {
                                 return false;
                             }
@@ -442,7 +444,7 @@ public class CleanupDetector extends Detector implements Detector.UastScanner {
         //    getFragmentManager().beginTransaction().addToBackStack("test")
         //            .disallowAddToBackStack().hide(mFragment2).setBreadCrumbShortTitle("test")
         //            .show(mFragment2).setCustomAnimations(0, 0).commit();
-        List<UExpression> chain = UastUtils.getQualifiedChain(node);
+        List<UExpression> chain = getQualifiedChain(getOutermostQualified(node));
         if (!chain.isEmpty()) {
             UExpression lastExpression = chain.get(chain.size() - 1);
             if (lastExpression instanceof UCallExpression) {
@@ -515,7 +517,12 @@ public class CleanupDetector extends Detector implements Detector.UastScanner {
                     protected boolean isCleanupCall(@NonNull UCallExpression call) {
                         if (isEditorApplyMethodCall(mContext, call)
                                 || isEditorCommitMethodCall(mContext, call)) {
-                            UExpression operand = call.getReceiver();
+                            List<UExpression> chain = getQualifiedChain(getOutermostQualified(call));
+                            if (chain.isEmpty()) {
+                                return false;
+                            }
+
+                            UExpression operand = chain.get(0);
                             if (operand != null) {
                                 PsiElement resolved = UastUtils.tryResolve(operand);
                                 //noinspection SuspiciousMethodCalls
@@ -523,7 +530,7 @@ public class CleanupDetector extends Detector implements Detector.UastScanner {
                                     return true;
                                 } else if (resolved instanceof PsiMethod
                                         && operand instanceof UCallExpression
-                                        && isCommittedInChainedCalls(mContext,
+                                        && isEditorCommittedInChainedCalls(mContext,
                                         (UCallExpression) operand)) {
                                     // Check that the target of the committed chains is the
                                     // right variable!
@@ -573,7 +580,7 @@ public class CleanupDetector extends Detector implements Detector.UastScanner {
 
     private static boolean isEditorCommittedInChainedCalls(@NonNull JavaContext context,
             @NonNull UCallExpression node) {
-        List<UExpression> chain = UastUtils.getQualifiedChain(node);
+        List<UExpression> chain = getQualifiedChain(getOutermostQualified(node));
         if (!chain.isEmpty()) {
             UExpression lastExpression = chain.get(chain.size() - 1);
             if (lastExpression instanceof UCallExpression) {
