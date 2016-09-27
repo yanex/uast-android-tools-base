@@ -2287,7 +2287,7 @@ public class ApiDetectorTest extends AbstractCheckTest {
                 + "                                      ~~~~~~~~~~~~~~~~~~~\n"
                 + "src/test/pkg/TestRequiresApi.java:10: Error: Call requires API level 21 (current min is 15): requiresLollipop [NewApi]\n"
                 + "        lollipopClass.requiresLollipop(); // ERROR - requires 21\n"
-                + "        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"
+                + "                      ~~~~~~~~~~~~~~~~~~\n"
                 + "src/test/pkg/TestRequiresApi.java:28: Error: Call requires API level 22 (current min is 15): requiresLollipop [NewApi]\n"
                 + "        requiresLollipop(); // ERROR\n"
                 + "        ~~~~~~~~~~~~~~~~~~\n"
