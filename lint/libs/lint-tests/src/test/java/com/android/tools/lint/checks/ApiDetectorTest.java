@@ -41,7 +41,7 @@ import java.util.regex.Pattern;
 @SuppressWarnings({"javadoc", "ClassNameDiffersFromFileName"})
 public class ApiDetectorTest extends AbstractCheckTest {
 
-    private TestFile mRequiresApi = java("src/annotation/support/annotation/RequiresApi.java", ""
+    private TestFile mRequiresApi = java("src/android/support/annotation/RequiresApi.java", ""
             + "package android.support.annotation;\n"
             + "\n"
             + "import java.lang.annotation.Retention;\n"
@@ -1342,7 +1342,7 @@ public class ApiDetectorTest extends AbstractCheckTest {
 
     public void testReflectiveOperationException() throws Exception {
         assertEquals(""
-                + "src/test/pkg/Java7API.java:8: Error: Multi-catch with these reflection exceptions requires API level 19 (current min is 1) because they get compiled to the common but new super type ReflectiveOperationException. As a workaround either create individual catch statements, or catch Exception. [NewApi]\n"
+                + "src/test/pkg/Java7API.java:8: Error: Class requires API level 19 (current min is 1): java.lang.ReflectiveOperationException [NewApi]\n"
                 + "        } catch (ReflectiveOperationException e) {\n"
                 + "                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"
                 + "src/test/pkg/Java7API.java:9: Error: Call requires API level 19 (current min is 1): java.lang.ReflectiveOperationException#printStackTrace [NewApi]\n"
@@ -2532,10 +2532,10 @@ public class ApiDetectorTest extends AbstractCheckTest {
                 + "                                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~\n"
                 + "src/test/pkg/MultiCatch.java:12: Error: Class requires API level 21 (current min is 1): android.media.MediaDrm.MediaDrmStateException [NewApi]\n"
                 + "        } catch (MediaDrm.MediaDrmStateException | UnsupportedSchemeException e) {\n"
-                + "                          ~~~~~~~~~~~~~~~~~~~~~~\n"
+                + "                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"
                 + "src/test/pkg/MultiCatch.java:18: Error: Class requires API level 21 (current min is 1): android.media.MediaDrm.MediaDrmStateException [NewApi]\n"
                 + "        } catch (MediaDrm.MediaDrmStateException\n"
-                + "                          ~~~~~~~~~~~~~~~~~~~~~~\n"
+                + "                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"
                 + "src/test/pkg/MultiCatch.java:19: Error: Class requires API level 18 (current min is 1): android.media.UnsupportedSchemeException [NewApi]\n"
                 + "                  | UnsupportedSchemeException e) {\n"
                 + "                    ~~~~~~~~~~~~~~~~~~~~~~~~~~\n"
