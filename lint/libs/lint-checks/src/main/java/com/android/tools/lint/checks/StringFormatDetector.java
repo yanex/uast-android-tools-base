@@ -1166,7 +1166,9 @@ public class StringFormatDetector extends ResourceXmlDetector implements Detecto
                     if (resolved instanceof PsiVariable) {
                         UExpression initializer = context.getUastContext().getInitializerBody (
                                 (PsiVariable) resolved);
-                        if (initializer != null && UastExpressionUtils.isNewArray(initializer)) {
+                        if (initializer != null &&
+                                (UastExpressionUtils.isNewArray(initializer) ||
+                                 UastExpressionUtils.isNestedArrayInitializer(initializer))) {
                             argWasReference = true;
                             // Now handled by check below
                             lastArg = initializer;
@@ -1174,14 +1176,16 @@ public class StringFormatDetector extends ResourceXmlDetector implements Detecto
                     }
                 }
 
-                if (UastExpressionUtils.isNewArray(lastArg)) {
-                    UCallExpression callExpression = (UCallExpression) lastArg;
+                if (UastExpressionUtils.isNewArray(lastArg) ||
+                        UastExpressionUtils.isNestedArrayInitializer(lastArg)) {
+                    UCallExpression arrayInitializer = (UCallExpression) lastArg;
 
-                    if (UastExpressionUtils.isNewArrayWithInitializer(lastArg)) {
-                        callCount = callExpression.getValueArgumentCount();
+                    if (UastExpressionUtils.isNewArrayWithInitializer(lastArg) ||
+                            UastExpressionUtils.isNestedArrayInitializer(lastArg)) {
+                        callCount = arrayInitializer.getValueArgumentCount();
                         knownArity = true;
                     } else if (UastExpressionUtils.isNewArrayWithDimensions(lastArg)) {
-                        List<UExpression> arrayDimensions = callExpression.getValueArguments();
+                        List<UExpression> arrayDimensions = arrayInitializer.getValueArguments();
                         if (arrayDimensions.size() == 1) {
                             UExpression first = arrayDimensions.get(0);
                             if (first instanceof ULiteralExpression) {
@@ -1201,11 +1205,6 @@ public class StringFormatDetector extends ResourceXmlDetector implements Detecto
                     } else {
                         passingVarArgsArray = true;
                     }
-                } else if (lastArg instanceof PsiArrayInitializerExpression) {
-                    PsiArrayInitializerExpression initializer =
-                            (PsiArrayInitializerExpression) lastArg;
-                    callCount = initializer.getInitializers().length;
-                    passingVarArgsArray = true;
                 }
             }
         }
