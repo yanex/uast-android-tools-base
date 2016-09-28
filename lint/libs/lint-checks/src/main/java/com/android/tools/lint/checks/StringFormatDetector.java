@@ -1166,7 +1166,7 @@ public class StringFormatDetector extends ResourceXmlDetector implements Detecto
                     if (resolved instanceof PsiVariable) {
                         UExpression initializer = context.getUastContext().getInitializerBody (
                                 (PsiVariable) resolved);
-                        if (UastExpressionUtils.isConstructorCall(initializer)) {
+                        if (initializer != null && UastExpressionUtils.isNewArray(initializer)) {
                             argWasReference = true;
                             // Now handled by check below
                             lastArg = initializer;
