@@ -626,7 +626,7 @@ public class StringFormatDetectorTest extends AbstractCheckTest {
                 + "    res/values/strings.xml: This definition requires 2 arguments\n"
                 + "src/test/pkg/FormatCheck.java:36: Error: Wrong argument count, format string one_arg requires 1 but format call supplies 3 [StringFormatMatches]\n"
                 + "        fragment.getString(R.string.one_arg, \"too\", \"many\", \"args\"); // ERROR: not enough arguments\n"
-                + "                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"
+                + "                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"
                 + "    res/values/strings.xml: This definition requires 1 arguments\n"
                 + "10 errors, 0 warnings\n",
 
