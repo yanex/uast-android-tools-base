@@ -37,7 +37,7 @@ import com.intellij.psi.PsiNamedElement;
 import com.intellij.psi.PsiParameterList;
 import com.intellij.psi.PsiVariable;
 
-import org.jetbrains.uast.UBinaryExpressionWithType;
+import org.jetbrains.uast.UBinaryExpression;
 import org.jetbrains.uast.UCallExpression;
 import org.jetbrains.uast.UClass;
 import org.jetbrains.uast.UClassInitializer;
@@ -164,7 +164,7 @@ public class LogDetector extends Detector implements Detector.UastScanner {
             String message = String.format("The log call Log.%1$s(...) should be " +
                             "conditional: surround with `if (Log.isLoggable(...))` or " +
                             "`if (BuildConfig.DEBUG) { ... }`",
-                    node.getMethodIdentifier());
+                    name);
             context.report(CONDITIONAL, node, context.getLocation(node), message);
         }
 
@@ -204,7 +204,7 @@ public class LogDetector extends Detector implements Detector.UastScanner {
             if (argument instanceof ULiteralExpression) {
                 return false;
             }
-            if (argument instanceof UBinaryExpressionWithType) {
+            if (argument instanceof UBinaryExpression) {
                 String string = UastUtils.evaluateString(argument);
                 //noinspection VariableNotUsedInsideIf
                 if (string != null) { // does it resolve to a constant?
@@ -239,9 +239,14 @@ public class LogDetector extends Detector implements Detector.UastScanner {
             @NonNull UCallExpression logCall) {
         while (curr != null) {
             if (curr instanceof UIfExpression) {
-                UIfExpression ifNode = (UIfExpression) curr;
-                if (ifNode.getCondition() instanceof UCallExpression) {
-                    UCallExpression call = (UCallExpression) ifNode.getCondition();
+
+                UExpression condition = ((UIfExpression) curr).getCondition();
+                if(condition instanceof UQualifiedReferenceExpression) {
+                    condition = ((UQualifiedReferenceExpression) condition).getSelector();
+                }
+
+                if (condition instanceof UCallExpression) {
+                    UCallExpression call = (UCallExpression) condition;
                     if (IS_LOGGABLE.equals(call.getMethodName())) {
                         checkTagConsistent(context, logCall, call);
                     }
@@ -281,7 +286,8 @@ public class LogDetector extends Detector implements Detector.UastScanner {
         }
 
         if (logTag != null) {
-            if (!UastLintUtils.areIdentifiersEqual(isLoggableTag, logTag)) {
+            if (!areLiteralsEqual(isLoggableTag, logTag) &&
+                    !UastLintUtils.areIdentifiersEqual(isLoggableTag, logTag)) {
                 PsiNamedElement resolved1 = UastUtils.tryResolveNamed(isLoggableTag);
                 PsiNamedElement resolved2 = UastUtils.tryResolveNamed(logTag);
                 if ((resolved1 == null || resolved2 == null || !resolved1.equals(resolved2))
@@ -345,5 +351,24 @@ public class LogDetector extends Detector implements Detector.UastScanner {
             location.setSecondary(alternate);
             context.report(WRONG_TAG, isLoggableCall, location, message);
         }
+    }
+
+    private static boolean areLiteralsEqual(UExpression first, UExpression second) {
+        if (!(first instanceof ULiteralExpression)) {
+            return false;
+        }
+
+        if (!(second instanceof ULiteralExpression)) {
+            return false;
+        }
+
+        Object firstValue = ((ULiteralExpression) first).getValue();
+        Object secondValue = ((ULiteralExpression) second).getValue();
+
+        if (firstValue == null) {
+            return secondValue == null;
+        }
+
+        return firstValue.equals(secondValue);
     }
 }
