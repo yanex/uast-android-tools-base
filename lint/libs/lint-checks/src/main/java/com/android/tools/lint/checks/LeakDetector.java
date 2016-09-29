@@ -39,6 +39,7 @@ import com.intellij.psi.PsiModifier;
 import com.intellij.psi.PsiModifierList;
 import com.intellij.psi.PsiType;
 
+import org.jetbrains.uast.UElement;
 import org.jetbrains.uast.UField;
 import org.jetbrains.uast.UVariable;
 import org.jetbrains.uast.visitor.AbstractUastVisitor;
@@ -120,7 +121,7 @@ public class LeakDetector extends Detector implements Detector.UastScanner {
                 if (isLeakCandidate(cls)) {
                     String message = "Do not place Android context classes in static fields; "
                             + "this is a memory leak (and also breaks Instant Run)";
-                    report(field, modifierList, message);
+                    report(field, message);
                 }
             } else {
                 // User application object -- look to see if that one itself has
@@ -155,7 +156,7 @@ public class LeakDetector extends Detector implements Detector.UastScanner {
                                             + "`" + referenced.getName() + "` pointing to `"
                                             + innerCls.getName() + "`); "
                                         + "this is a memory leak (and also breaks Instant Run)";
-                            report(field, modifierList, message);
+                            report(field, message);
                             break;
                         }
                     }
@@ -163,11 +164,8 @@ public class LeakDetector extends Detector implements Detector.UastScanner {
             }
         }
 
-        private void report(@NonNull PsiField field, @NonNull PsiModifierList modifierList,
-                @NonNull String message) {
-            Location location = mContext.getLocation(
-                    modifierList.getTextRange().getLength() > 0 ? modifierList : field);
-            mContext.report(ISSUE, field, location, message);
+        private void report(@NonNull UElement field, @NonNull String message) {
+            mContext.report(ISSUE, field, mContext.getLocation(field), message);
         }
     }
 
