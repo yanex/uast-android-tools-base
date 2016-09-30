@@ -2538,7 +2538,7 @@ public class ApiDetector extends ResourceXmlDetector
 
         @Override
         public boolean visitElement(UElement node) {
-            if(mDone) {
+            if (mDone) {
                 return true;
             }
 
@@ -2552,7 +2552,7 @@ public class ApiDetector extends ResourceXmlDetector
         @Override
         public boolean visitIfExpression(UIfExpression ifStatement) {
 
-            if(mDone) {
+            if (mDone) {
                 return true;
             }
 
