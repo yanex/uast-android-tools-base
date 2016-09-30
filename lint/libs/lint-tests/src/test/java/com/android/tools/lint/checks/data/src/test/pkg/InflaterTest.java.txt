@@ -62,4 +62,16 @@ public class InflaterTest extends Activity {
             inflate(getContext(), R.layout.size6, null);
         }
     }
+
+    private static final class R {
+        private static final class layout {
+            public static final int size1 = 1;
+            public static final int size2 = 2;
+            public static final int size3 = 3;
+            public static final int size4 = 4;
+            public static final int size5 = 5;
+            public static final int size6 = 6;
+            public static final int size7 = 7;
+        }
+    }
 }
