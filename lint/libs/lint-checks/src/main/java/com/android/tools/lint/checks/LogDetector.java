@@ -241,7 +241,7 @@ public class LogDetector extends Detector implements Detector.UastScanner {
             if (curr instanceof UIfExpression) {
 
                 UExpression condition = ((UIfExpression) curr).getCondition();
-                if(condition instanceof UQualifiedReferenceExpression) {
+                if (condition instanceof UQualifiedReferenceExpression) {
                     condition = ((UQualifiedReferenceExpression) condition).getSelector();
                 }
 
