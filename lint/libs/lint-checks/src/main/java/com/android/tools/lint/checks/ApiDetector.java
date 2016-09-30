@@ -163,7 +163,6 @@ import org.w3c.dom.NodeList;
 
 import java.io.File;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.EnumSet;
@@ -326,6 +325,8 @@ public class ApiDetector extends ResourceXmlDetector
 
     private static final String SDK_INT = "SDK_INT";
     private static final String ANDROID_OS_BUILD_VERSION = "android/os/Build$VERSION";
+    private static final String REFLECTIVE_OPERATION_EXCEPTION
+            = "java.lang.ReflectiveOperationException";
 
     protected ApiLookup mApiDatabase;
     private boolean mWarnedMissingDb;
@@ -2081,12 +2082,12 @@ public class ApiDetector extends ResourceXmlDetector
 
         private Location getCatchParametersLocation(JavaContext context, UCatchClause catchClause) {
             List<UTypeReferenceExpression> types = catchClause.getTypeReferences();
-            if(types.size() < 1) {
+            if (types.isEmpty()) {
                 return Location.NONE;
             }
 
             Location first = context.getLocation(types.get(0));
-            if(types.size() < 2) {
+            if (types.size() < 2) {
                 return first;
             }
 
@@ -2095,7 +2096,7 @@ public class ApiDetector extends ResourceXmlDetector
             Position start = first.getStart();
             Position end = last.getEnd();
 
-            if(start == null || end == null) {
+            if (start == null) {
                 return Location.create(file);
             }
 
@@ -2104,14 +2105,26 @@ public class ApiDetector extends ResourceXmlDetector
 
         private boolean isMultiCatchReflectiveOperationException(UCatchClause catchClause) {
             List<PsiType> types = catchClause.getTypes();
-            return types.size() >= 2 && types.stream()
-                    .allMatch(this::isSubclassOfReflectiveOperationException);
+            if (types.size() < 2) {
+                return false;
+            }
 
+            for (PsiType t : types) {
+                if(!isSubclassOfReflectiveOperationException(t)) {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
-        private boolean isSubclassOfReflectiveOperationException(PsiType t) {
-            return Arrays.stream(t.getSuperTypes())
-                    .anyMatch(st -> "java.lang.ReflectiveOperationException".equals(st.getCanonicalText()));
+        private boolean isSubclassOfReflectiveOperationException(PsiType type) {
+            for (PsiType t : type.getSuperTypes()) {
+                if (REFLECTIVE_OPERATION_EXCEPTION.equals(t.getCanonicalText())) {
+                    return true;
+                }
+            }
+            return false;
         }
 
         private void checkCatchTypeElement(@NonNull UTryExpression statement,
