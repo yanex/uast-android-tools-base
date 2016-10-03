@@ -523,14 +523,13 @@ public class OverdrawDetector extends LayoutDetector implements Detector.UastSca
                     }
                     mActivityToTheme.put(mName, STYLE_RESOURCE_PREFIX + style);
                 }
-            } else if (SET_CONTENT_VIEW.equals(node.getMethodName())) {
-                if (node.getValueArgumentCount() > 0) {
-                    UExpression layout = node.getValueArguments().get(0);
-                    AndroidReference androidReference = toAndroidReferenceViaResolve(layout);
-                    if (androidReference != null
-                            && androidReference.getType() == ResourceType.LAYOUT) {
-                        registerLayoutActivity(androidReference.getName(), mName);
-                    }
+            } else if (SET_CONTENT_VIEW.equals(node.getMethodName()) &&
+                node.getValueArgumentCount() > 0) {
+                UExpression layout = node.getValueArguments().get(0);
+                AndroidReference androidReference = toAndroidReferenceViaResolve(layout);
+                if (androidReference != null
+                        && androidReference.getType() == ResourceType.LAYOUT) {
+                    registerLayoutActivity(androidReference.getName(), mName);
                 }
             }
 
