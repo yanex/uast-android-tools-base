@@ -42,6 +42,7 @@ import com.intellij.psi.PsiType;
 import org.jetbrains.uast.UElement;
 import org.jetbrains.uast.UField;
 import org.jetbrains.uast.UVariable;
+import org.jetbrains.uast.java.JavaUField;
 import org.jetbrains.uast.visitor.AbstractUastVisitor;
 import org.jetbrains.uast.visitor.UastVisitor;
 
@@ -164,8 +165,8 @@ public class LeakDetector extends Detector implements Detector.UastScanner {
             }
         }
 
-        private void report(@NonNull UElement field, @NonNull String message) {
-            mContext.report(ISSUE, field, mContext.getLocation(field), message);
+        private void report(@NonNull UElement element, @NonNull String message) {
+            mContext.report(ISSUE, element, mContext.getLocation(element), message);
         }
     }
 
