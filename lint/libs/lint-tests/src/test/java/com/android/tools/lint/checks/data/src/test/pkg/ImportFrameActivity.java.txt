@@ -10,4 +10,10 @@ public class ImportFrameActivity extends Activity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.simple);
     }
+
+    private static class R {
+        private static class layout {
+            public static final int simple=1;
+        }
+    }
 }
