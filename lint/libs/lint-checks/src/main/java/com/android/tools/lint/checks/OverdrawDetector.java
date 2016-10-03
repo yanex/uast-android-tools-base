@@ -34,6 +34,7 @@ import static com.android.SdkConstants.TAG_STYLE;
 import static com.android.SdkConstants.TOOLS_URI;
 import static com.android.SdkConstants.TRANSPARENT_COLOR;
 import static com.android.SdkConstants.VALUE_DISABLED;
+import static com.android.tools.lint.client.api.UastLintUtils.toAndroidReferenceViaResolve;
 import static com.android.tools.lint.detector.api.LintUtils.endsWith;
 import static com.android.utils.SdkUtils.getResourceFieldName;
 
@@ -42,7 +43,6 @@ import com.android.annotations.Nullable;
 import com.android.resources.ResourceFolderType;
 import com.android.resources.ResourceType;
 import com.android.tools.lint.client.api.AndroidReference;
-import com.android.tools.lint.client.api.UastLintUtils;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Context;
 import com.android.tools.lint.detector.api.Detector;
@@ -63,7 +63,6 @@ import org.jetbrains.uast.UCallExpression;
 import org.jetbrains.uast.UClass;
 import org.jetbrains.uast.UElement;
 import org.jetbrains.uast.UExpression;
-import org.jetbrains.uast.USimpleNameReferenceExpression;
 import org.jetbrains.uast.visitor.AbstractUastVisitor;
 import org.w3c.dom.Attr;
 import org.w3c.dom.Element;
@@ -85,7 +84,9 @@ import java.util.Map;
  * painted over, meaning that the bottom paint operation is a waste of time.
  */
 public class OverdrawDetector extends LayoutDetector implements Detector.UastScanner {
-    private static final String SET_THEME = "setTheme";         //$NON-NLS-1$
+
+    private static final String SET_THEME = "setTheme";                 //$NON-NLS-1$
+    private static final String SET_CONTENT_VIEW = "setContentView";    //$NON-NLS-1$
 
     /** The main issue discovered by this detector */
     public static final Issue ISSUE = Issue.create(
@@ -507,17 +508,6 @@ public class OverdrawDetector extends LayoutDetector implements Detector.UastSca
         public boolean visitClass(UClass node) {
             // Don't go into inner classes
             return mCls.equals(node.getPsi()) || super.visitClass(node);
-
-        }
-
-        @Override
-        public boolean visitSimpleNameReferenceExpression(USimpleNameReferenceExpression node) {
-            AndroidReference androidReference = UastLintUtils.toAndroidReferenceViaResolve(node);
-            if (androidReference != null && androidReference.getType() == ResourceType.LAYOUT) {
-                registerLayoutActivity(androidReference.getName(), mName);
-            }
-
-            return super.visitSimpleNameReferenceExpression(node);
         }
 
         @Override
@@ -525,13 +515,22 @@ public class OverdrawDetector extends LayoutDetector implements Detector.UastSca
             if (SET_THEME.equals(node.getMethodName()) && node.getValueArgumentCount() == 1) {
                 // Look at argument
                 UExpression arg = node.getValueArguments().get(0);
-                AndroidReference androidReference = UastLintUtils.toAndroidReferenceViaResolve(arg);
+                AndroidReference androidReference = toAndroidReferenceViaResolve(arg);
                 if (androidReference != null && androidReference.getType() == ResourceType.STYLE) {
                     String style = androidReference.getName();
                     if (mActivityToTheme == null) {
                         mActivityToTheme = new HashMap<String, String>();
                     }
                     mActivityToTheme.put(mName, STYLE_RESOURCE_PREFIX + style);
+                }
+            } else if (SET_CONTENT_VIEW.equals(node.getMethodName())) {
+                if (node.getValueArgumentCount() > 0) {
+                    UExpression layout = node.getValueArguments().get(0);
+                    AndroidReference androidReference = toAndroidReferenceViaResolve(layout);
+                    if (androidReference != null
+                            && androidReference.getType() == ResourceType.LAYOUT) {
+                        registerLayoutActivity(androidReference.getName(), mName);
+                    }
                 }
             }
 
