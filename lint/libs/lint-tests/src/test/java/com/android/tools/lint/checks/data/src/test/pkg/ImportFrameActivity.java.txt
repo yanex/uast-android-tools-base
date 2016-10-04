@@ -13,7 +13,7 @@ public class ImportFrameActivity extends Activity {
 
     private static class R {
         private static class layout {
-            public static final int simple=1;
+            public static final int simple = 1;
         }
     }
 }
