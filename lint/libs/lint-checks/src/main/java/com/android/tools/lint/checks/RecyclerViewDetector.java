@@ -128,15 +128,15 @@ public class RecyclerViewDetector extends Detector implements Detector.UastScann
         PsiParameter parameter = parameters[1];
 
         ParameterEscapesVisitor visitor = new ParameterEscapesVisitor(context, cls, parameter);
-        UMethod body = context.getUastContext().getMethod(declaration);
-        body.accept(visitor);
+        UMethod method = context.getUastContext().getMethod(declaration);
+        method.accept(visitor);
         if (visitor.variableEscapes()) {
             reportError(context, viewHolder, parameter);
         }
 
         // Look for pending data binder calls that aren't executed before the method finishes
         List<UCallExpression> dataBinderReferences = visitor.getDataBinders();
-        checkDataBinders(context, declaration, dataBinderReferences);
+        checkDataBinders(context, method, dataBinderReferences);
     }
 
     private static void reportError(@NonNull JavaContext context, PsiParameter viewHolder,
@@ -153,7 +153,7 @@ public class RecyclerViewDetector extends Detector implements Detector.UastScann
     }
 
     private static void checkDataBinders(@NonNull JavaContext context,
-            @NonNull PsiMethod declaration, List<UCallExpression> references) {
+            @NonNull UMethod declaration, List<UCallExpression> references) {
         if (references != null && !references.isEmpty()) {
             List<UCallExpression> targets = Lists.newArrayList();
             List<UCallExpression> sources = Lists.newArrayList();
