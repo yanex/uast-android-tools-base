@@ -26,6 +26,7 @@ import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.testutils.SdkTestCase;
 import com.android.testutils.TestUtils;
+import com.android.tools.lint.client.api.ExternalReferenceExpression;
 import com.android.tools.lint.client.api.JavaParser.DefaultTypeDescriptor;
 import com.android.tools.lint.client.api.JavaParser.ResolvedAnnotation;
 import com.android.tools.lint.client.api.JavaParser.ResolvedClass;
@@ -39,9 +40,29 @@ import com.android.tools.lint.detector.api.LintUtilsTest;
 import com.google.common.base.Splitter;
 import com.google.common.collect.Lists;
 import com.google.common.io.Files;
+import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.vfs.VirtualFileSystem;
+import com.intellij.psi.FileViewProvider;
+import com.intellij.psi.PsiAnnotation;
+import com.intellij.psi.PsiAnnotationMemberValue;
+import com.intellij.psi.PsiArrayInitializerMemberValue;
+import com.intellij.psi.PsiClass;
+import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiField;
+import com.intellij.psi.PsiFile;
+import com.intellij.psi.PsiLiteral;
+import com.intellij.psi.PsiManager;
+import com.intellij.psi.PsiMethod;
+import com.intellij.psi.PsiParameter;
+import com.intellij.psi.PsiParameterList;
+import com.intellij.psi.PsiType;
+
+import org.intellij.lang.annotations.Language;
+import org.jetbrains.uast.UFile;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
@@ -241,6 +262,25 @@ public class ExternalAnnotationRepositoryTest extends SdkTestCase {
 
 
     public void testAnnotationAttributes() throws Exception {
+
+        @Language("JAVA")
+        String source = ""
+                + "package test.pkg;\n"
+                + "public class Test {\n"
+                + "}\n";
+
+        JavaContext context = LintUtilsTest.parsePsi(source, new File("src/test/pkg/Test.java"));
+        assertNotNull(context);
+
+        UFile uFile = context.getUFile();
+        assertNotNull(uFile);
+
+        PsiFile psiFile = uFile.getPsi();
+        assertNotNull(psiFile);
+
+        PsiManager psiManager = psiFile.getManager();
+        assertNotNull(psiManager);
+
         ExternalAnnotationRepository manager = getExternalAnnotations("android.graphics", ""
                 + "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
                 + "<root>\n"
@@ -269,52 +309,86 @@ public class ExternalAnnotationRepositoryTest extends SdkTestCase {
                 + "  </item>\n"
                 + "</root>\n");
         assertNotNull(manager);
-        ResolvedMethod method;
-        ResolvedAnnotation annotation;
+        PsiMethod method;
+        PsiAnnotation annotation;
+        PsiAnnotationMemberValue value;
 
-        // Size 1
-        method = createMethod("android.graphics.Color", "int", "HSVToColor", "int, float[]");
+        //// Size 1
+        method = createPsiMethod("android.graphics.Color", "int", "HSVToColor", "int, float[]");
         assertNull(manager.getAnnotation(method, "android.support.annotation.Annotation7"));
         assertNull(manager.getAnnotation(method, 0, "android.support.annotation.Annotation7"));
         annotation = manager.getAnnotation(method, 1, "android.support.annotation.Annotation7");
         assertNotNull(annotation);
-        assertEquals(3L, annotation.getValue());
-        assertEquals(3L, annotation.getValue("value"));
+
+        value = annotation.findDeclaredAttributeValue("value");
+        assertNotNull(value);
+        assertEquals(3L, ((PsiLiteral) value).getValue());
         //noinspection ConstantConditions
-        assertEquals(3, ((Number)annotation.getValue("value")).intValue());
+        assertEquals(3, ((Number)((PsiLiteral) value).getValue()).intValue());
         assertNotNull(annotation);
 
-        // Size 2
-        method = createMethod("android.graphics.Canvas", "void", "drawLines", "float[], android.graphics.Paint");
+        //// Size 2
+        method = createPsiMethod("android.graphics.Canvas", "void", "drawLines", "float[], android.graphics.Paint");
         assertNotNull(manager.getAnnotation(method, 0, "android.support.annotation.Annotation4"));
         annotation = manager.getAnnotation(method, 0, "android.support.annotation.Annotation7");
         assertNotNull(annotation);
-        assertEquals(4L, annotation.getValue("min"));
-        assertEquals(2L, annotation.getValue("multiple"));
+
+        value = annotation.findDeclaredAttributeValue("min");
+        assertNotNull(value);
+        assertEquals(4L, ((PsiLiteral) value).getValue());
+
+        value = annotation.findDeclaredAttributeValue("multiple");
+        assertNotNull(value);
+        assertEquals(2L, ((PsiLiteral) value).getValue());
         assertNotNull(annotation);
 
-        // Intdef
-        method = createMethod("android.graphics.Canvas", "int", "saveLayer",
+        //// Intdef
+        method = createPsiMethod("android.graphics.Canvas", "int", "saveLayer",
                 "android.graphics.RectF, android.graphics.Paint, int");
         annotation = manager.getAnnotation(method, 2, "android.support.annotation.Annotation8");
         assertNotNull(annotation);
-        assertEquals(true, annotation.getValue("flag"));
-        Object[] values = (Object[]) annotation.getValue("value");
-        assertNotNull(values);
-        assertEquals(6, values.length);
-        assertTrue(values[0] instanceof ResolvedField);
-        assertFalse(values[0].equals(createField("android.graphics.Canvas", "WRONG_NAME")));
-        assertEquals(values[0], createField("android.graphics.Canvas", "MATRIX_SAVE_FLAG"));
-        assertEquals(values[1], createField("android.graphics.Canvas", "CLIP_SAVE_FLAG"));
-        assertEquals(values[2], createField("android.graphics.Canvas", "HAS_ALPHA_LAYER_SAVE_FLAG"));
-        assertEquals(values[3], createField("android.graphics.Canvas", "FULL_COLOR_LAYER_SAVE_FLAG"));
-        assertEquals(values[4], createField("android.graphics.Canvas", "CLIP_TO_LAYER_SAVE_FLAG"));
-        assertEquals(values[5], createField("android.graphics.Canvas", "ALL_SAVE_FLAG"));
 
-        ResolvedField field = (ResolvedField)values[0];
-        assertEquals("android.graphics.Canvas.MATRIX_SAVE_FLAG", field.getSignature());
-        assertEquals("android.graphics.Canvas", field.getContainingClassName());
+        value = annotation.findDeclaredAttributeValue("flag");
+        assertNotNull(value);
+        assertEquals(true, ((PsiLiteral) value).getValue());
+
+        value = annotation.findDeclaredAttributeValue("value");
+        assertNotNull(value);
+
+        PsiAnnotationMemberValue[] initializers =
+                ((PsiArrayInitializerMemberValue) value).getInitializers();
+        assertNotNull(initializers);
+
+        assertEquals(6, initializers.length);
+
+        PsiElement[] values = new PsiElement[initializers.length];
+        for (int i = 0; i < initializers.length; ++i) {
+            values[i] = ((ExternalReferenceExpression)initializers[i]).resolve(psiFile);
+            assertTrue(values[i] instanceof PsiField);
+        }
+
+        assertFalse(psiManager.areElementsEquivalent(values[0],
+                createPsiField("android.graphics.Canvas", "WRONG_NAME")));
+
+        assertTrue(psiManager.areElementsEquivalent(values[0],
+                createPsiField("android.graphics.Canvas", "MATRIX_SAVE_FLAG")));
+        assertTrue(psiManager.areElementsEquivalent(values[1],
+                createPsiField("android.graphics.Canvas", "CLIP_SAVE_FLAG")));
+        assertTrue(psiManager.areElementsEquivalent(values[2],
+                createPsiField("android.graphics.Canvas", "HAS_ALPHA_LAYER_SAVE_FLAG")));
+        assertTrue(psiManager.areElementsEquivalent(values[3],
+                createPsiField("android.graphics.Canvas", "FULL_COLOR_LAYER_SAVE_FLAG")));
+        assertTrue(psiManager.areElementsEquivalent(values[4],
+                createPsiField("android.graphics.Canvas", "CLIP_TO_LAYER_SAVE_FLAG")));
+        assertTrue(psiManager.areElementsEquivalent(values[5],
+                createPsiField("android.graphics.Canvas", "ALL_SAVE_FLAG")));
+
+        PsiField field = (PsiField)values[0];
         assertEquals("MATRIX_SAVE_FLAG", field.getName());
+
+        PsiClass containingClass = field.getContainingClass();
+        assertNotNull(containingClass);
+        assertEquals("android.graphics.Canvas", containingClass.getQualifiedName());
     }
 
     public void testConstructors() throws Exception {
@@ -612,4 +686,119 @@ public class ExternalAnnotationRepositoryTest extends SdkTestCase {
         when(mock.getName()).thenReturn(pkgName);
         return mock;
     }
+
+
+    // Psi mocks
+
+    private static PsiMethod createPsiMethod(String containingClass, String returnType, String name,
+            String parameters) {
+        return createPsiMethod(containingClass, returnType, name,
+                Splitter.on(',').trimResults().split(parameters), false);
+    }
+
+    private static PsiMethod createPsiMethod(String containingClass, String returnType, String name,
+            Iterable<String> parameters, boolean isConstructor) {
+        PsiMethod mock = mock(PsiMethod.class);
+        when(mock.isConstructor()).thenReturn(isConstructor);
+        when(mock.getName()).thenReturn(name);
+
+        PsiType returnPsiType = createPsiType(returnType);
+        when(mock.getReturnType()).thenReturn(returnPsiType);
+
+        ArrayList<PsiParameter> psiParameters = new ArrayList<>();
+        for(String p : parameters) {
+            psiParameters.add(createPsiParameter(p));
+        }
+
+        PsiParameter[] psiParameterArray = new PsiParameter[psiParameters.size()];
+        psiParameters.toArray(psiParameterArray);
+        PsiParameterList psiParameterList = createPsiParameterList(psiParameterArray);
+        when(mock.getParameterList()).thenReturn(psiParameterList);
+
+        PsiClass cls = createPsiClass(containingClass);
+        when(mock.getContainingClass()).thenReturn(cls);
+
+        return mock;
+    }
+
+    private static PsiParameterList createPsiParameterList(PsiParameter[] parameters) {
+        PsiParameterList mock = mock(PsiParameterList.class);
+        when(mock.getParameters()).thenReturn(parameters);
+        when(mock.getParametersCount()).thenReturn(parameters.length);
+        return mock;
+    }
+
+    private static PsiParameter createPsiParameter(String type) {
+        PsiParameter mock = mock(PsiParameter.class);
+        PsiType parameterType = createPsiType(type);
+        when(mock.getType()).thenReturn(parameterType);
+        return mock;
+    }
+
+    private static PsiType createPsiType(String name) {
+        PsiType mock = mock(PsiType.class);
+        when(mock.getCanonicalText()).thenReturn(name);
+        return mock;
+    }
+
+    private static PsiClass createPsiClass(String qualifiedName) {
+        assertTrue(qualifiedName, qualifiedName.indexOf('.') != -1);
+
+        PsiClass mock = mock(PsiClass.class);
+        String className = qualifiedName.substring(qualifiedName.lastIndexOf('.') + 1);
+
+        when(mock.getName()).thenReturn(className);
+        when(mock.getQualifiedName()).thenReturn(qualifiedName);
+        when(mock.isValid()).thenReturn(true);
+
+        PsiFile psiFile = createPsiFile(className);
+        when(mock.getContainingFile()).thenReturn(psiFile);
+
+        return mock;
+    }
+
+    private static PsiFile createPsiFile(String name) {
+        PsiFile mock = mock(PsiFile.class);
+
+        when(mock.isValid()).thenReturn(true);
+        when(mock.getOriginalFile()).thenReturn(mock);
+
+        VirtualFile virtualFile = createVirtualFile(name);
+        when(mock.getVirtualFile()).thenReturn(virtualFile);
+
+        FileViewProvider fileViewProvider = createFileViewProvider(virtualFile);
+        when(mock.getViewProvider()).thenReturn(fileViewProvider);
+
+        return mock;
+    }
+
+    private static FileViewProvider createFileViewProvider(VirtualFile virtualFile) {
+        FileViewProvider mock = mock(FileViewProvider.class);
+        when(mock.getVirtualFile()).thenReturn(virtualFile);
+        return mock;
+    }
+
+    private static VirtualFile createVirtualFile(String name) {
+        VirtualFile mock = mock(VirtualFile.class);
+
+        VirtualFileSystem virtualFileSystem = createVirtualFileSystem();
+        when(mock.getFileSystem()).thenReturn(virtualFileSystem);
+
+        when(mock.getName()).thenReturn(name + ".class");
+        return mock;
+    }
+
+    private static VirtualFileSystem createVirtualFileSystem() {
+        return mock(VirtualFileSystem.class);
+    }
+
+    public static PsiField createPsiField(String containingClass, String name) {
+        PsiField mock = mock(PsiField.class);
+        when(mock.getName()).thenReturn(name);
+        when(mock.isValid()).thenReturn(true);
+        PsiClass cls = createPsiClass(containingClass);
+        when(mock.getContainingClass()).thenReturn(cls);
+        return mock;
+    }
+
 }
