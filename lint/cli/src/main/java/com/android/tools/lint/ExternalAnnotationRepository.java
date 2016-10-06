@@ -260,6 +260,31 @@ public class ExternalAnnotationRepository {
     // ---- Query methods ----
 
     @Nullable
+    public PsiAnnotation getAnnotation(@NonNull PsiMethod method, @NonNull String type) {
+        for (AnnotationsDatabase database : mDatabases) {
+            PsiAnnotation annotation = database.getAnnotation(method, type);
+            if (annotation != null) {
+                return annotation;
+            }
+        }
+
+        return null;
+    }
+
+    @Nullable
+    public PsiAnnotation getAnnotation(@NonNull PsiMethod method,
+            int parameterIndex, @NonNull String type) {
+        for (AnnotationsDatabase database : mDatabases) {
+            PsiAnnotation annotation = database.getAnnotation(method, parameterIndex, type);
+            if (annotation != null) {
+                return annotation;
+            }
+        }
+
+        return null;
+    }
+
+    @Nullable
     public ResolvedAnnotation getAnnotation(@NonNull ResolvedMethod method, @NonNull String type) {
         for (AnnotationsDatabase database : mDatabases) {
             ResolvedAnnotation annotation = database.getAnnotation(method, type);
@@ -643,6 +668,46 @@ public class ExternalAnnotationRepository {
         }
 
         // ---- Query methods ----
+
+        @Nullable
+        public PsiAnnotation getAnnotation(@NonNull PsiMethod method, @NonNull String type) {
+            MethodInfo m = findMethod(method);
+            if (m == null) {
+                return null;
+            }
+
+            if (m.psiAnnotations != null) {
+                for (PsiAnnotation annotation : m.psiAnnotations) {
+                    if (type.equals(annotation.getQualifiedName())) {
+                        return annotation;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        @Nullable
+        public PsiAnnotation getAnnotation(@NonNull PsiMethod method,
+                int parameterIndex, @NonNull String type) {
+            MethodInfo m = findMethod(method);
+            if (m == null) {
+                return null;
+            }
+
+            if (m.psiParameterAnnotations != null) {
+                Collection<PsiAnnotation> annotations = m.psiParameterAnnotations.get(parameterIndex);
+                if (annotations != null) {
+                    for (PsiAnnotation annotation : annotations) {
+                        if (type.equals(annotation.getQualifiedName())) {
+                            return annotation;
+                        }
+                    }
+                }
+            }
+
+            return null;
+        }
 
         @Nullable
         public ResolvedAnnotation getAnnotation(@NonNull ResolvedMethod method,
