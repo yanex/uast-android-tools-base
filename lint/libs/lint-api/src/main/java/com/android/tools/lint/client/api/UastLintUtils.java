@@ -88,10 +88,8 @@ public class UastLintUtils {
                 (variable instanceof PsiLocalVariable || variable instanceof PsiParameter)) {
             UMethod containingFunction = UastUtils.getContainingUMethod(call);
             if (containingFunction != null) {
-                ConstantEvaluator.LastAssignmentFinder
-                        finder = new ConstantEvaluator.LastAssignmentFinder(
-                        variable, call, context, null,
-                        (variable instanceof PsiParameter) ? 1 : 0);
+                ConstantEvaluator.LastAssignmentFinder finder =
+                        new ConstantEvaluator.LastAssignmentFinder(variable, call, context, null, -1);
                 containingFunction.accept(finder);
                 lastAssignment = finder.getLastAssignment();
             }
