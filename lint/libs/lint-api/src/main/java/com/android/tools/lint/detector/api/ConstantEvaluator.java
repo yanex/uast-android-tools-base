@@ -75,6 +75,7 @@ import org.jetbrains.uast.UParenthesizedExpression;
 import org.jetbrains.uast.UPrefixExpression;
 import org.jetbrains.uast.UResolvable;
 import org.jetbrains.uast.UVariable;
+import org.jetbrains.uast.UVariableDeclarationsExpression;
 import org.jetbrains.uast.UastBinaryOperator;
 import org.jetbrains.uast.UastPrefixOperator;
 import org.jetbrains.uast.expressions.UReferenceExpression;
@@ -1111,7 +1112,7 @@ public class ConstantEvaluator {
 
         @Override
         public boolean visitElement(UElement node) {
-            if (!(node instanceof UBlockExpression)) {
+            if (elementHasLevel(node)) {
                 mCurrentLevel++;
             }
             if (node.equals(mEndAt)) {
@@ -1122,16 +1123,16 @@ public class ConstantEvaluator {
 
         @Override
         public boolean visitVariable(UVariable node) {
-            if (mVariableLevel < 0 && node.equals(mVariable)) {
+            if (mVariableLevel < 0 && node.getPsi().isEquivalentTo(mVariable)) {
                 mVariableLevel = mCurrentLevel;
             }
-            
+
             return super.visitVariable(node);
         }
 
         @Override
         public void afterVisitBinaryExpression(UBinaryExpression node) {
-            if (!mDone 
+            if (!mDone
                     && node.getOperator() instanceof UastBinaryOperator.AssignOperator
                     && mVariableLevel >= 0) {
                 UExpression leftOperand = node.getLeftOperand();
@@ -1147,38 +1148,37 @@ public class ConstantEvaluator {
                     return;
                 }
 
-                // Stop search if we see an assignment inside some conditional or loop statement.
-                if (mCurrentLevel > mVariableLevel) {
+                // Last assignment is unknown if we see an assignment inside
+                // some conditional or loop statement.
+                if (mCurrentLevel > mVariableLevel + 1) {
                     mLastAssignment = null;
                     mCurrentValue = null;
-                    mDone = true;
+                    return;
                 }
 
                 UExpression rightOperand = node.getRightOperand();
                 ConstantEvaluator constantEvaluator = mConstantEvaluator;
 
-                Object newExpression = (constantEvaluator != null)
+                mCurrentValue = (constantEvaluator != null)
                         ? constantEvaluator.evaluate(rightOperand)
                         : null;
-
-                //TODO implement other assign operators
-                if (node.getOperator() == UastBinaryOperator.ASSIGN) {
-                    mCurrentValue = newExpression;
-                    mLastAssignment = rightOperand;
-                } else {
-                    mCurrentValue = newExpression;
-                    // Technically wrong, just reflect the old behaviour for now
-                    mLastAssignment = rightOperand;
-                }
+                mLastAssignment = rightOperand;
             }
+
+            super.afterVisitBinaryExpression(node);
         }
 
         @Override
         public void afterVisitElement(UElement node) {
-            if (!(node instanceof UBlockExpression)) {
+            if (elementHasLevel(node)) {
                 mCurrentLevel--;
             }
             super.afterVisitElement(node);
+        }
+
+        private static boolean elementHasLevel(UElement node) {
+            return !(node instanceof UBlockExpression
+                    || node instanceof UVariableDeclarationsExpression);
         }
     }
 
