@@ -242,7 +242,7 @@ public class LogDetector extends Detector implements Detector.UastScanner {
 
                 UExpression condition = ((UIfExpression) curr).getCondition();
                 if (condition instanceof UQualifiedReferenceExpression) {
-                    condition = ((UQualifiedReferenceExpression) condition).getSelector();
+                    condition = getLastInQualifiedChain((UQualifiedReferenceExpression) condition);
                 }
 
                 if (condition instanceof UCallExpression) {
@@ -351,6 +351,15 @@ public class LogDetector extends Detector implements Detector.UastScanner {
             location.setSecondary(alternate);
             context.report(WRONG_TAG, isLoggableCall, location, message);
         }
+    }
+
+    @NonNull
+    private static UExpression getLastInQualifiedChain(@NonNull UQualifiedReferenceExpression node) {
+        UExpression last = node.getSelector();
+        while (last instanceof UQualifiedReferenceExpression) {
+            last = ((UQualifiedReferenceExpression) last).getSelector();
+        }
+        return last;
     }
 
     private static boolean areLiteralsEqual(UExpression first, UExpression second) {
