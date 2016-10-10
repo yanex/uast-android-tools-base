@@ -543,7 +543,7 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
 
                 if (resolved instanceof PsiModifierListOwner) {
                     PsiAnnotation[] annotations = mContext.getEvaluator().getAllAnnotations(
-                            (PsiModifierListOwner)resolved, true);
+                            (PsiModifierListOwner)resolved);
                     PsiAnnotation annotation = SupportAnnotationDetector.findIntDef(
                             filterRelevantAnnotations(mContext.getEvaluator(), annotations));
                     if (annotation != null) {
@@ -566,7 +566,7 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
                 PsiMethod method = ((UCallExpression) expression).resolve();
                 if (method != null) {
                     PsiAnnotation[] annotations = mContext.getEvaluator()
-                            .getAllAnnotations(method, true);
+                            .getAllAnnotations(method);
                     PsiAnnotation annotation = SupportAnnotationDetector.findIntDef(
                             filterRelevantAnnotations(mContext.getEvaluator(), annotations));
                     if (annotation != null) {

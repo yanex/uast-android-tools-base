@@ -210,6 +210,5 @@ public abstract class JavaEvaluator {
     }
 
     @NonNull
-    public abstract PsiAnnotation[] getAllAnnotations(@NonNull PsiModifierListOwner owner,
-            boolean inHierarchy);
+    public abstract PsiAnnotation[] getAllAnnotations(@NonNull PsiModifierListOwner owner);
 }

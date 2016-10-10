@@ -1846,7 +1846,7 @@ public class SupportAnnotationDetector extends Detector implements Detector.Uast
                 continue;
             }
             PsiClass cls = (PsiClass)resolved;
-            PsiAnnotation[] innerAnnotations = evaluator.getAllAnnotations(cls, true);
+            PsiAnnotation[] innerAnnotations = evaluator.getAllAnnotations(cls);
             for (int j = 0; j < innerAnnotations.length; j++) {
                 PsiAnnotation inner = innerAnnotations[j];
                 String a = inner.getQualifiedName();
@@ -1920,7 +1920,7 @@ public class SupportAnnotationDetector extends Detector implements Detector.Uast
         public void checkCall(PsiMethod method, UCallExpression call) {
             JavaEvaluator evaluator = mContext.getEvaluator();
 
-            PsiAnnotation[] methodAnnotations = evaluator.getAllAnnotations(method, true);
+            PsiAnnotation[] methodAnnotations = evaluator.getAllAnnotations(method);
             methodAnnotations = filterRelevantAnnotations(evaluator, methodAnnotations);
 
             // Look for annotations on the class as well: these trickle
@@ -1928,7 +1928,7 @@ public class SupportAnnotationDetector extends Detector implements Detector.Uast
             PsiClass containingClass = method.getContainingClass();
             PsiAnnotation[] classAnnotations;
             if (containingClass != null) {
-                classAnnotations = evaluator.getAllAnnotations(containingClass, true);
+                classAnnotations = evaluator.getAllAnnotations(containingClass);
                 classAnnotations = filterRelevantAnnotations(evaluator, classAnnotations);
             } else {
                 classAnnotations = PsiAnnotation.EMPTY_ARRAY;
@@ -1955,7 +1955,7 @@ public class SupportAnnotationDetector extends Detector implements Detector.Uast
                     i++) {
                 UExpression argument = arguments.get(i);
                 PsiParameter parameter = parameters[i];
-                annotations = evaluator.getAllAnnotations(parameter, true);
+                annotations = evaluator.getAllAnnotations(parameter);
                 annotations = filterRelevantAnnotations(evaluator, annotations);
                 checkParameterAnnotations(mContext, argument, call, method, annotations);
             }
