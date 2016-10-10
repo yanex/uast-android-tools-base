@@ -779,7 +779,7 @@ public class SupportAnnotationDetector extends Detector implements Detector.Uast
 
     private static void checkResult(@NonNull JavaContext context, @NonNull UCallExpression node,
             @NonNull PsiMethod method, @NonNull PsiAnnotation annotation) {
-        if (isCallExpressionValueUnused(node)) {
+        if (isExpressionValueUnused(node)) {
             String methodName = JavaContext.getMethodName(node);
             String suggested = getAnnotationStringValue(annotation, ATTR_SUGGEST);
 
@@ -815,7 +815,7 @@ public class SupportAnnotationDetector extends Detector implements Detector.Uast
         }
     }
 
-    private static boolean isCallExpressionValueUnused(UExpression expression) {
+    private static boolean isExpressionValueUnused(UExpression expression) {
         return getQualifiedParentOrThis(expression).getContainingElement()
                 instanceof UBlockExpression;
     }
