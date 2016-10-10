@@ -154,11 +154,7 @@ public class NewJavaEvaluator extends JavaEvaluator {
 
     @NonNull
     @Override
-    public PsiAnnotation[] getAllAnnotations(@NonNull PsiModifierListOwner owner, boolean inHierarchy) {
-        if (!inHierarchy) {
-            return getDirectAnnotations(owner);
-        }
-
+    public PsiAnnotation[] getAllAnnotations(@NonNull PsiModifierListOwner owner) {
         PsiModifierList modifierList = owner.getModifierList();
         if (modifierList == null) {
             return getDirectAnnotations(owner);
