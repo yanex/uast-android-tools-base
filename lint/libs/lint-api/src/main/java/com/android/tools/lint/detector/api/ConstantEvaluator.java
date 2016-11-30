@@ -744,7 +744,7 @@ public class ConstantEvaluator {
                     } else {
                         return left.doubleValue() > right.doubleValue();
                     }
-                } else if (operator == UastBinaryOperator.GREATER_OR_EQUAL) {
+                } else if (operator == UastBinaryOperator.GREATER_OR_EQUALS) {
                     if (isInteger) {
                         return left.longValue() >= right.longValue();
                     } else {
@@ -756,7 +756,7 @@ public class ConstantEvaluator {
                     } else {
                         return left.doubleValue() < right.doubleValue();
                     }
-                } else if (operator == UastBinaryOperator.LESS_OR_EQUAL) {
+                } else if (operator == UastBinaryOperator.LESS_OR_EQUALS) {
                     if (isInteger) {
                         return left.longValue() <= right.longValue();
                     } else {

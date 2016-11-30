@@ -254,11 +254,19 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
                 return false;
             }
 
+            PsiElement psiElement = annotation.getPsi();
+            if (!(psiElement instanceof PsiAnnotation)) {
+                return false;
+            }
+
+            PsiAnnotation psiAnnotation = (PsiAnnotation)psiElement;
+
             if (FQCN_SUPPRESS_LINT.equals(type)) {
-                PsiAnnotationOwner owner = annotation.getOwner();
+                PsiAnnotationOwner owner = psiAnnotation.getOwner();
                 if (owner == null) {
                     return false;
                 }
+
                 if (owner instanceof PsiModifierList) {
                     PsiElement parent = ((PsiModifierList) owner).getParent();
                     // Only flag local variables and parameters (not classes, fields and methods)
@@ -270,7 +278,8 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
                 } else {
                     return false;
                 }
-                PsiNameValuePair[] attributes = annotation.getParameterList().getAttributes();
+
+                PsiNameValuePair[] attributes = psiAnnotation.getParameterList().getAttributes();
                 if (attributes.length == 1) {
                     PsiNameValuePair attribute = attributes[0];
                     PsiAnnotationMemberValue value = attribute.getValue();
@@ -278,7 +287,7 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
                         Object v = ((PsiLiteral) value).getValue();
                         if (v instanceof String) {
                             String id = (String) v;
-                            checkSuppressLint(annotation, id);
+                            checkSuppressLint(psiAnnotation, id);
                         }
                     } else if (value instanceof PsiArrayInitializerMemberValue) {
                         PsiArrayInitializerMemberValue initializer =
@@ -288,7 +297,7 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
                                 Object v = ((PsiLiteral) expression).getValue();
                                 if (v instanceof String) {
                                     String id = (String) v;
-                                    if (!checkSuppressLint(annotation, id)) {
+                                    if (!checkSuppressLint(psiAnnotation, id)) {
                                         return false;
                                     }
                                 }
@@ -299,9 +308,9 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
             } else if (type.startsWith(SUPPORT_ANNOTATIONS_PREFIX)) {
                 if (CHECK_RESULT_ANNOTATION.equals(type)) {
                     // Check that the return type of this method is not void!
-                    if (annotation.getParent() instanceof PsiModifierList
-                            && annotation.getParent().getParent() instanceof PsiMethod) {
-                        PsiMethod method = (PsiMethod) annotation.getParent().getParent();
+                    if (psiAnnotation.getParent() instanceof PsiModifierList
+                            && psiAnnotation.getParent().getParent() instanceof PsiMethod) {
+                        PsiMethod method = (PsiMethod) psiAnnotation.getParent().getParent();
                         if (!method.isConstructor()
                                 && PsiType.VOID.equals(method.getReturnType())) {
                             mContext.report(ANNOTATION_USAGE, annotation.getPsi(),
@@ -315,17 +324,17 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
                     // Also make sure that from <= to.
                     boolean invalid;
                     if (INT_RANGE_ANNOTATION.equals(type)) {
-                        checkTargetType(annotation, TYPE_INT, TYPE_LONG, true);
+                        checkTargetType(psiAnnotation, TYPE_INT, TYPE_LONG, true);
 
-                        long from = getLongAttribute(annotation, ATTR_FROM, Long.MIN_VALUE);
-                        long to = getLongAttribute(annotation, ATTR_TO, Long.MAX_VALUE);
+                        long from = getLongAttribute(psiAnnotation, ATTR_FROM, Long.MIN_VALUE);
+                        long to = getLongAttribute(psiAnnotation, ATTR_TO, Long.MAX_VALUE);
                         invalid = from > to;
                     } else {
-                        checkTargetType(annotation, TYPE_FLOAT, TYPE_DOUBLE, true);
+                        checkTargetType(psiAnnotation, TYPE_FLOAT, TYPE_DOUBLE, true);
 
-                        double from = getDoubleAttribute(annotation, ATTR_FROM,
+                        double from = getDoubleAttribute(psiAnnotation, ATTR_FROM,
                                 Double.NEGATIVE_INFINITY);
-                        double to = getDoubleAttribute(annotation, ATTR_TO,
+                        double to = getDoubleAttribute(psiAnnotation, ATTR_TO,
                                 Double.POSITIVE_INFINITY);
                         invalid = from > to;
                     }
@@ -339,10 +348,10 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
                     // (or at least not an int or long; if so, suggest IntRange)
                     // Make sure the size and the modulo is not negative.
                     int unset = -42;
-                    long exact = getLongAttribute(annotation, ATTR_VALUE, unset);
-                    long min = getLongAttribute(annotation, ATTR_MIN, Long.MIN_VALUE);
-                    long max = getLongAttribute(annotation, ATTR_MAX, Long.MAX_VALUE);
-                    long multiple = getLongAttribute(annotation, ATTR_MULTIPLE, 1);
+                    long exact = getLongAttribute(psiAnnotation, ATTR_VALUE, unset);
+                    long min = getLongAttribute(psiAnnotation, ATTR_MIN, Long.MIN_VALUE);
+                    long max = getLongAttribute(psiAnnotation, ATTR_MAX, Long.MAX_VALUE);
+                    long multiple = getLongAttribute(psiAnnotation, ATTR_MULTIPLE, 1);
                     if (min > max) {
                         mContext.report(ANNOTATION_USAGE, annotation.getPsi(), mContext.getLocation(annotation.getPsi()),
                                 "Invalid size range: the `min` attribute must be less than "
@@ -357,20 +366,20 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
                     }
                 } else if (COLOR_INT_ANNOTATION.equals(type) || (PX_ANNOTATION.equals(type))) {
                     // Check that ColorInt applies to the right type
-                    checkTargetType(annotation, TYPE_INT, TYPE_LONG, true);
+                    checkTargetType(psiAnnotation, TYPE_INT, TYPE_LONG, true);
                 } else if (INT_DEF_ANNOTATION.equals(type)) {
                     // Make sure IntDef constants are unique
-                    ensureUniqueValues(annotation);
+                    ensureUniqueValues(psiAnnotation);
                 } else if (PERMISSION_ANNOTATION.equals(type) ||
                         PERMISSION_ANNOTATION_READ.equals(type) ||
                         PERMISSION_ANNOTATION_WRITE.equals(type)) {
                     // Check that if there are no arguments, this is specified on a parameter,
                     // and conversely, on methods and fields there is a valid argument.
-                    if (annotation.getParent() instanceof PsiModifierList
-                            && annotation.getParent().getParent() instanceof PsiMethod) {
-                        String value = PermissionRequirement.getAnnotationStringValue(annotation, ATTR_VALUE);
-                        String[] anyOf = PermissionRequirement.getAnnotationStringValues(annotation, ATTR_ANY_OF);
-                        String[] allOf = PermissionRequirement.getAnnotationStringValues(annotation, ATTR_ALL_OF);
+                    if (psiAnnotation.getParent() instanceof PsiModifierList
+                            && psiAnnotation.getParent().getParent() instanceof PsiMethod) {
+                        String value = PermissionRequirement.getAnnotationStringValue(psiAnnotation, ATTR_VALUE);
+                        String[] anyOf = PermissionRequirement.getAnnotationStringValues(psiAnnotation, ATTR_ANY_OF);
+                        String[] allOf = PermissionRequirement.getAnnotationStringValues(psiAnnotation, ATTR_ALL_OF);
 
                         int set = 0;
                         //noinspection VariableNotUsedInsideIf
@@ -400,12 +409,12 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
 
                 } else if (type.endsWith(RES_SUFFIX)) {
                     // Check that resource type annotations are on ints
-                    checkTargetType(annotation, TYPE_INT, TYPE_LONG, true);
+                    checkTargetType(psiAnnotation, TYPE_INT, TYPE_LONG, true);
                 }
             } else {
                 // Look for typedefs (and make sure they're specified on the right type)
-                PsiJavaCodeReferenceElement referenceElement = annotation
-                        .getNameReferenceElement();
+                PsiJavaCodeReferenceElement referenceElement =
+                        psiAnnotation.getNameReferenceElement();
                 if (referenceElement != null) {
                     PsiElement resolved = referenceElement.resolve();
                     if (resolved instanceof PsiClass) {
@@ -414,9 +423,9 @@ public class AnnotationDetector extends Detector implements Detector.UastScanner
                             for (PsiAnnotation a : cls.getModifierList().getAnnotations()) {
                                 String name = a.getQualifiedName();
                                 if (INT_DEF_ANNOTATION.equals(name)) {
-                                    checkTargetType(annotation, TYPE_INT, TYPE_LONG, true);
+                                    checkTargetType(psiAnnotation, TYPE_INT, TYPE_LONG, true);
                                 } else if (STRING_DEF_ANNOTATION.equals(type)) {
-                                    checkTargetType(annotation, TYPE_STRING, null, true);
+                                    checkTargetType(psiAnnotation, TYPE_STRING, null, true);
                                 }
                             }
                         }
