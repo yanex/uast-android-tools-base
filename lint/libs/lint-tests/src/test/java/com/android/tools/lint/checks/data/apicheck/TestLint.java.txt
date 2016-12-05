@@ -1,0 +1,13 @@
+package test.pkg;
+
+import java.sql.SQLException;
+
+public class ApiCallTest9 {
+    public void test(Exception e) throws Exception {
+        boolean s = "".isEmpty();
+        throw new SQLException("error on upgrade: ", e);
+    }
+    public void test2(Exception e) throws Exception {
+        throw new android.database.SQLException("error on upgrade: ", e);
+    }
+}

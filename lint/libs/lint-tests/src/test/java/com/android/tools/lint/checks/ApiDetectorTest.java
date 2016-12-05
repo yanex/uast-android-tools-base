@@ -380,19 +380,16 @@ public class ApiDetectorTest extends AbstractCheckTest {
                 + "src/foo/bar/ApiCallTest.java:27: Error: Call requires API level 3 (current min is 1): android.widget.Chronometer#getOnChronometerTickListener [NewApi]\n"
                 + "  chronometer.getOnChronometerTickListener(); // API 3 \n"
                 + "              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"
-                + "src/foo/bar/ApiCallTest.java:30: Error: Call requires API level 11 (current min is 1): android.widget.Chronometer#setTextIsSelectable [NewApi]\n"
+                + "src/foo/bar/ApiCallTest.java:30: Error: Call requires API level 11 (current min is 1): android.widget.TextView#setTextIsSelectable [NewApi]\n"
                 + "  chronometer.setTextIsSelectable(true); // API 11\n"
                 + "              ~~~~~~~~~~~~~~~~~~~\n"
-                + "src/foo/bar/ApiCallTest.java:33: Error: Field requires API level 11 (current min is 1): dalvik.bytecode.OpcodeInfo#MAXIMUM_VALUE [NewApi]\n"
-                + "  int field = OpcodeInfo.MAXIMUM_VALUE; // API 11\n"
-                + "                         ~~~~~~~~~~~~~\n"
                 + "src/foo/bar/ApiCallTest.java:38: Error: Field requires API level 14 (current min is 1): android.app.ApplicationErrorReport#batteryInfo [NewApi]\n"
                 + "  BatteryInfo batteryInfo = getReport().batteryInfo;\n"
-                + "              ~~~~~~~~~~~\n"
-                + "src/foo/bar/ApiCallTest.java:41: Error: Field requires API level 11 (current min is 1): android.graphics.PorterDuff.Mode#OVERLAY [NewApi]\n"
+                + "                                        ~~~~~~~~~~~\n"
+                + "src/foo/bar/ApiCallTest.java:41: Error: Enum value requires API level 11 (current min is 1): android.graphics.PorterDuff.Mode#OVERLAY [NewApi]\n"
                 + "  Mode mode = PorterDuff.Mode.OVERLAY; // API 11\n"
                 + "                              ~~~~~~~\n"
-                + "7 errors, 1 warnings\n",
+                + "6 errors, 1 warnings\n",
 
             lintProject(
                 "apicheck/classpath=>.classpath",
@@ -416,19 +413,16 @@ public class ApiDetectorTest extends AbstractCheckTest {
                 + "src/foo/bar/ApiCallTest.java:27: Error: Call requires API level 3 (current min is 2): android.widget.Chronometer#getOnChronometerTickListener [NewApi]\n"
                 + "  chronometer.getOnChronometerTickListener(); // API 3 \n"
                 + "              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"
-                + "src/foo/bar/ApiCallTest.java:30: Error: Call requires API level 11 (current min is 2): android.widget.Chronometer#setTextIsSelectable [NewApi]\n"
+                + "src/foo/bar/ApiCallTest.java:30: Error: Call requires API level 11 (current min is 2): android.widget.TextView#setTextIsSelectable [NewApi]\n"
                 + "  chronometer.setTextIsSelectable(true); // API 11\n"
                 + "              ~~~~~~~~~~~~~~~~~~~\n"
-                + "src/foo/bar/ApiCallTest.java:33: Error: Field requires API level 11 (current min is 2): dalvik.bytecode.OpcodeInfo#MAXIMUM_VALUE [NewApi]\n"
-                + "  int field = OpcodeInfo.MAXIMUM_VALUE; // API 11\n"
-                + "                         ~~~~~~~~~~~~~\n"
                 + "src/foo/bar/ApiCallTest.java:38: Error: Field requires API level 14 (current min is 2): android.app.ApplicationErrorReport#batteryInfo [NewApi]\n"
                 + "  BatteryInfo batteryInfo = getReport().batteryInfo;\n"
-                + "              ~~~~~~~~~~~\n"
-                + "src/foo/bar/ApiCallTest.java:41: Error: Field requires API level 11 (current min is 2): android.graphics.PorterDuff.Mode#OVERLAY [NewApi]\n"
+                + "                                        ~~~~~~~~~~~\n"
+                + "src/foo/bar/ApiCallTest.java:41: Error: Enum value requires API level 11 (current min is 2): android.graphics.PorterDuff.Mode#OVERLAY [NewApi]\n"
                 + "  Mode mode = PorterDuff.Mode.OVERLAY; // API 11\n"
                 + "                              ~~~~~~~\n"
-                + "7 errors, 1 warnings\n",
+                + "6 errors, 1 warnings\n",
 
             lintProject(
                 "apicheck/classpath=>.classpath",
@@ -449,19 +443,16 @@ public class ApiDetectorTest extends AbstractCheckTest {
                 + "src/foo/bar/ApiCallTest.java:24: Error: Class requires API level 8 (current min is 4): org.w3c.dom.DOMErrorHandler [NewApi]\n"
                 + "  Class<?> clz = DOMErrorHandler.class; // API 8\n"
                 + "                 ~~~~~~~~~~~~~~~\n"
-                + "src/foo/bar/ApiCallTest.java:30: Error: Call requires API level 11 (current min is 4): android.widget.Chronometer#setTextIsSelectable [NewApi]\n"
+                + "src/foo/bar/ApiCallTest.java:30: Error: Call requires API level 11 (current min is 4): android.widget.TextView#setTextIsSelectable [NewApi]\n"
                 + "  chronometer.setTextIsSelectable(true); // API 11\n"
                 + "              ~~~~~~~~~~~~~~~~~~~\n"
-                + "src/foo/bar/ApiCallTest.java:33: Error: Field requires API level 11 (current min is 4): dalvik.bytecode.OpcodeInfo#MAXIMUM_VALUE [NewApi]\n"
-                + "  int field = OpcodeInfo.MAXIMUM_VALUE; // API 11\n"
-                + "                         ~~~~~~~~~~~~~\n"
                 + "src/foo/bar/ApiCallTest.java:38: Error: Field requires API level 14 (current min is 4): android.app.ApplicationErrorReport#batteryInfo [NewApi]\n"
                 + "  BatteryInfo batteryInfo = getReport().batteryInfo;\n"
-                + "              ~~~~~~~~~~~\n"
-                + "src/foo/bar/ApiCallTest.java:41: Error: Field requires API level 11 (current min is 4): android.graphics.PorterDuff.Mode#OVERLAY [NewApi]\n"
+                + "                                        ~~~~~~~~~~~\n"
+                + "src/foo/bar/ApiCallTest.java:41: Error: Enum value requires API level 11 (current min is 4): android.graphics.PorterDuff.Mode#OVERLAY [NewApi]\n"
                 + "  Mode mode = PorterDuff.Mode.OVERLAY; // API 11\n"
                 + "                              ~~~~~~~\n"
-                + "6 errors, 1 warnings\n",
+                + "5 errors, 1 warnings\n",
 
             lintProject(
                 "apicheck/classpath=>.classpath",
@@ -479,19 +470,16 @@ public class ApiDetectorTest extends AbstractCheckTest {
                 + "src/foo/bar/ApiCallTest.java:20: Error: Call requires API level 11 (current min is 10): android.app.Activity#getActionBar [NewApi]\n"
                 + "  getActionBar(); // API 11\n"
                 + "  ~~~~~~~~~~~~\n"
-                + "src/foo/bar/ApiCallTest.java:30: Error: Call requires API level 11 (current min is 10): android.widget.Chronometer#setTextIsSelectable [NewApi]\n"
+                + "src/foo/bar/ApiCallTest.java:30: Error: Call requires API level 11 (current min is 10): android.widget.TextView#setTextIsSelectable [NewApi]\n"
                 + "  chronometer.setTextIsSelectable(true); // API 11\n"
                 + "              ~~~~~~~~~~~~~~~~~~~\n"
-                + "src/foo/bar/ApiCallTest.java:33: Error: Field requires API level 11 (current min is 10): dalvik.bytecode.OpcodeInfo#MAXIMUM_VALUE [NewApi]\n"
-                + "  int field = OpcodeInfo.MAXIMUM_VALUE; // API 11\n"
-                + "                         ~~~~~~~~~~~~~\n"
                 + "src/foo/bar/ApiCallTest.java:38: Error: Field requires API level 14 (current min is 10): android.app.ApplicationErrorReport#batteryInfo [NewApi]\n"
                 + "  BatteryInfo batteryInfo = getReport().batteryInfo;\n"
-                + "              ~~~~~~~~~~~\n"
-                + "src/foo/bar/ApiCallTest.java:41: Error: Field requires API level 11 (current min is 10): android.graphics.PorterDuff.Mode#OVERLAY [NewApi]\n"
+                + "                                        ~~~~~~~~~~~\n"
+                + "src/foo/bar/ApiCallTest.java:41: Error: Enum value requires API level 11 (current min is 10): android.graphics.PorterDuff.Mode#OVERLAY [NewApi]\n"
                 + "  Mode mode = PorterDuff.Mode.OVERLAY; // API 11\n"
                 + "                              ~~~~~~~\n"
-                + "5 errors, 1 warnings\n",
+                + "4 errors, 1 warnings\n",
 
             lintProject(
                 "apicheck/classpath=>.classpath",
@@ -584,9 +572,9 @@ public class ApiDetectorTest extends AbstractCheckTest {
     public void testIOException() throws Exception {
         // See http://code.google.com/p/android/issues/detail?id=35190
         assertEquals(
-            "src/test/pkg/ApiCallTest6.java:8: Error: Call requires API level 9 (current min is 1): new java.io.IOException [NewApi]\n" +
+            "src/test/pkg/ApiCallTest6.java:8: Error: Call requires API level 9 (current min is 1): java.io.IOException#IOException [NewApi]\n" +
             "        IOException ioException = new IOException(throwable);\n" +
-            "        ~~~~~~~~~~~\n" +
+            "                                      ~~~~~~~~~~~\n" +
             "1 errors, 0 warnings\n",
 
             lintProject(
@@ -617,27 +605,16 @@ public class ApiDetectorTest extends AbstractCheckTest {
                 + "src/foo/bar/SuppressTest1.java:83: Error: Call requires API level 3 (current min is 1): android.widget.Chronometer#getOnChronometerTickListener [NewApi]\n"
                 + "  chronometer.getOnChronometerTickListener(); // API 3\n"
                 + "              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"
-                + "src/foo/bar/SuppressTest1.java:86: Error: Call requires API level 11 (current min is 1): android.widget.Chronometer#setTextIsSelectable [NewApi]\n"
+                + "src/foo/bar/SuppressTest1.java:86: Error: Call requires API level 11 (current min is 1): android.widget.TextView#setTextIsSelectable [NewApi]\n"
                 + "  chronometer.setTextIsSelectable(true); // API 11\n"
                 + "              ~~~~~~~~~~~~~~~~~~~\n"
-                + "src/foo/bar/SuppressTest1.java:89: Error: Field requires API level 11 (current min is 1): dalvik.bytecode.OpcodeInfo#MAXIMUM_VALUE [NewApi]\n"
-                + "  int field = OpcodeInfo.MAXIMUM_VALUE; // API 11\n"
-                + "                         ~~~~~~~~~~~~~\n"
                 + "src/foo/bar/SuppressTest1.java:94: Error: Field requires API level 14 (current min is 1): android.app.ApplicationErrorReport#batteryInfo [NewApi]\n"
                 + "  BatteryInfo batteryInfo = getReport().batteryInfo;\n"
-                + "              ~~~~~~~~~~~\n"
-                + "src/foo/bar/SuppressTest1.java:97: Error: Field requires API level 11 (current min is 1): android.graphics.PorterDuff.Mode#OVERLAY [NewApi]\n"
+                + "                                        ~~~~~~~~~~~\n"
+                + "src/foo/bar/SuppressTest1.java:97: Error: Enum value requires API level 11 (current min is 1): android.graphics.PorterDuff.Mode#OVERLAY [NewApi]\n"
                 + "  Mode mode = PorterDuff.Mode.OVERLAY; // API 11\n"
                 + "                              ~~~~~~~\n"
-
-                // Note: These annotations are within the methods, not ON the methods, so they have
-                // no effect (because they don't end up in the bytecode)
-
-
-                + "src/foo/bar/SuppressTest4.java:19: Error: Field requires API level 14 (current min is 1): android.app.ApplicationErrorReport#batteryInfo [NewApi]\n"
-                + "  BatteryInfo batteryInfo = report.batteryInfo;\n"
-                + "              ~~~~~~~~~~~\n"
-                + "8 errors, 1 warnings\n",
+                + "6 errors, 1 warnings\n",
 
             lintProject(
                 "apicheck/classpath=>.classpath",
@@ -658,10 +635,10 @@ public class ApiDetectorTest extends AbstractCheckTest {
             // These errors are correctly -not- suppressed because they
             // appear outside the middle inner class suppressing its own errors
             // and its child's errors
-            "src/test/pkg/ApiCallTest4.java:9: Error: Call requires API level 14 (current min is 1): new android.widget.GridLayout [NewApi]\n" +
+            "src/test/pkg/ApiCallTest4.java:9: Error: Call requires API level 14 (current min is 1): android.widget.GridLayout#GridLayout [NewApi]\n" +
             "        new GridLayout(null, null, 0);\n" +
             "            ~~~~~~~~~~\n" +
-            "src/test/pkg/ApiCallTest4.java:38: Error: Call requires API level 14 (current min is 1): new android.widget.GridLayout [NewApi]\n" +
+            "src/test/pkg/ApiCallTest4.java:38: Error: Call requires API level 14 (current min is 1): android.widget.GridLayout#GridLayout [NewApi]\n" +
             "            new GridLayout(null, null, 0);\n" +
             "                ~~~~~~~~~~\n" +
             "2 errors, 0 warnings\n",
@@ -703,7 +680,7 @@ public class ApiDetectorTest extends AbstractCheckTest {
 
     public void testTargetAnnotationInner() throws Exception {
         assertEquals(
-            "src/test/pkg/ApiTargetTest2.java:32: Error: Call requires API level 14 (current min is 3): new android.widget.GridLayout [NewApi]\n" +
+            "src/test/pkg/ApiTargetTest2.java:32: Error: Call requires API level 14 (current min is 3): android.widget.GridLayout#GridLayout [NewApi]\n" +
             "                        new GridLayout(null, null, 0);\n" +
             "                            ~~~~~~~~~~\n" +
             "1 errors, 0 warnings\n",
@@ -722,10 +699,10 @@ public class ApiDetectorTest extends AbstractCheckTest {
     public void testSuper() throws Exception {
         // See http://code.google.com/p/android/issues/detail?id=36384
         assertEquals(
-            "src/test/pkg/ApiCallTest7.java:8: Error: Call requires API level 9 (current min is 4): new java.io.IOException [NewApi]\n" +
+            "src/test/pkg/ApiCallTest7.java:8: Error: Call requires API level 9 (current min is 4): java.io.IOException#IOException [NewApi]\n" +
             "        super(message, cause); // API 9\n" +
             "        ~~~~~\n" +
-            "src/test/pkg/ApiCallTest7.java:12: Error: Call requires API level 9 (current min is 4): new java.io.IOException [NewApi]\n" +
+            "src/test/pkg/ApiCallTest7.java:12: Error: Call requires API level 9 (current min is 4): java.io.IOException#IOException [NewApi]\n" +
             "        super.toString(); throw new IOException((Throwable) null); // API 9\n" +
             "                                    ~~~~~~~~~~~\n" +
             "2 errors, 0 warnings\n",
@@ -749,8 +726,11 @@ public class ApiDetectorTest extends AbstractCheckTest {
             "                 ~~~~~~~\n" +
             "src/test/pkg/TestEnum.java:61: Error: Enum for switch requires API level 11 (current min is 4): android.renderscript.Element.DataType [NewApi]\n" +
             "        switch (type) {\n" +
-            "        ^\n" +
-            "3 errors, 0 warnings\n",
+            "                ~~~~\n" +
+            "src/test/pkg/TestEnum.java:62: Error: Enum value requires API level 16 (current min is 4): android.renderscript.Element.DataType#RS_FONT [NewApi]\n" +
+            "            case RS_FONT: {\n" +
+            "                 ~~~~~~~\n" +
+            "4 errors, 0 warnings\n",
 
             lintProject(
                     "apicheck/classpath=>.classpath",
@@ -815,12 +795,12 @@ public class ApiDetectorTest extends AbstractCheckTest {
     public void testSuppressFieldAnnotations() throws Exception {
         // See http://code.google.com/p/android/issues/detail?id=38626
         assertEquals(
-            "src/test/pkg/ApiCallTest9.java:9: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n" +
+            "src/test/pkg/ApiCallTest9.java:9: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n" +
             "    private GridLayout field1 = new GridLayout(null);\n" +
-            "            ~~~~~~~~~~\n" +
-            "src/test/pkg/ApiCallTest9.java:12: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n" +
+            "                                    ~~~~~~~~~~\n" +
+            "src/test/pkg/ApiCallTest9.java:12: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n" +
             "    private static GridLayout field2 = new GridLayout(null);\n" +
-            "                   ~~~~~~~~~~\n" +
+            "                                           ~~~~~~~~~~\n" +
             "2 errors, 0 warnings\n",
 
             lintProject(
@@ -834,10 +814,16 @@ public class ApiDetectorTest extends AbstractCheckTest {
     public void test38195() throws Exception {
         // See http://code.google.com/p/android/issues/detail?id=38195
         assertEquals(
-            "bin/classes/TestLint.class: Error: Call requires API level 16 (current min is 4): new android.database.SQLException [NewApi]\n" +
-            "bin/classes/TestLint.class: Error: Call requires API level 9 (current min is 4): java.lang.String#isEmpty [NewApi]\n" +
-            "bin/classes/TestLint.class: Error: Call requires API level 9 (current min is 4): new java.sql.SQLException [NewApi]\n" +
-            "3 errors, 0 warnings\n",
+            "src/test/pkg/TestLint.java:7: Error: Call requires API level 9 (current min is 4): java.lang.String#isEmpty [NewApi]\n"
+            + "        boolean s = \"\".isEmpty();\n"
+            + "                       ~~~~~~~\n"
+            + "src/test/pkg/TestLint.java:8: Error: Call requires API level 9 (current min is 4): java.sql.SQLException#SQLException [NewApi]\n"
+            + "        throw new SQLException(\"error on upgrade: \", e);\n"
+            + "                  ~~~~~~~~~~~~\n"
+            + "src/test/pkg/TestLint.java:11: Error: Call requires API level 16 (current min is 4): android.database.SQLException#SQLException [NewApi]\n"
+            + "        throw new android.database.SQLException(\"error on upgrade: \", e);\n"
+            + "                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"
+            + "3 errors, 0 warnings\n",
 
             lintProject(
                     "apicheck/classpath=>.classpath",
@@ -875,6 +861,7 @@ public class ApiDetectorTest extends AbstractCheckTest {
                            10:  athrow
                         }
                      */
+                    "apicheck/TestLint.java.txt=>src/test/pkg/TestLint.java",
                     "apicheck/TestLint.class.data=>bin/classes/TestLint.class"
                 ));
     }
@@ -939,10 +926,10 @@ public class ApiDetectorTest extends AbstractCheckTest {
             "                                                       ~~~~~~~~~~~\n" +
             "src/test/pkg/ApiCallTest12.java:23: Error: The pattern character 'L' requires API level 9 (current min is 4) : \"yyyy-MM-dd LL\" [NewApi]\n" +
             "  new SimpleDateFormat(\"yyyy-MM-dd LL\", Locale.US);\n" +
-            "                        ^\n" +
+            "                       ~~~~~~~~~~~~~~~\n" +
             "src/test/pkg/ApiCallTest12.java:25: Error: The pattern character 'c' requires API level 9 (current min is 4) : \"cc yyyy-MM-dd\" [NewApi]\n" +
             "  SimpleDateFormat format = new SimpleDateFormat(\"cc yyyy-MM-dd\");\n" +
-            "                                                  ^\n" +
+            "                                                 ~~~~~~~~~~~~~~~\n" +
             "3 errors, 0 warnings\n",
 
             lintProject(
@@ -1023,7 +1010,7 @@ public class ApiDetectorTest extends AbstractCheckTest {
                 + "src/test/pkg/ApiSourceCheck.java:121: Warning: Field requires API level 11 (current min is 1): android.view.View#MEASURED_STATE_MASK [InlinedApi]\n"
                 + "        testBenignUsages(View.MEASURED_STATE_MASK); // Not OK\n"
                 + "                              ~~~~~~~~~~~~~~~~~~~\n"
-                + "src/test/pkg/ApiSourceCheck.java:51: Error: Field requires API level 14 (current min is 1): android.widget.ZoomButton#ROTATION_X [NewApi]\n"
+                + "src/test/pkg/ApiSourceCheck.java:51: Error: Field requires API level 14 (current min is 1): android.view.View#ROTATION_X [NewApi]\n"
                 + "        Object rotationX = ZoomButton.ROTATION_X; // Requires API 14\n"
                 + "                                      ~~~~~~~~~~\n"
                 + "1 errors, 18 warnings\n",
@@ -1142,8 +1129,8 @@ public class ApiDetectorTest extends AbstractCheckTest {
                 + "                                           ~~~~~~~~~~~~~~~~~~~~~~\n"
                 + "src/test/pkg/ApiCallTest13.java:9: Error: Class requires API level 11 (current min is 4): android.view.View.OnSystemUiVisibilityChangeListener [NewApi]\n"
                 + "  View.OnSystemUiVisibilityChangeListener, OnLayoutChangeListener {\n"
-                + "       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"
-                + "src/test/pkg/ApiCallTest13.java:12: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n"
+                + "  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"
+                + "src/test/pkg/ApiCallTest13.java:12: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n"
                 + "  super(context);\n"
                 + "  ~~~~~\n"
                 + "4 errors, 0 warnings\n",
@@ -1252,10 +1239,13 @@ public class ApiDetectorTest extends AbstractCheckTest {
         // Repeatable annotations require minSdkVersion >= N
         //noinspection ClassNameDiffersFromFileName
         assertEquals(""
+                + "src/test/pkg/MyAnnotation.java:5: Error: Class requires API level 16 (current min is 15): android.annotation.SuppressLint [NewApi]\n"
+                + "@Repeatable(android.annotation.SuppressLint.class)\n"
+                + "            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"
                 + "src/test/pkg/MyAnnotation.java:5: Error: Repeatable annotation requires API level 24 (current min is 15) [NewApi]\n"
                 + "@Repeatable(android.annotation.SuppressLint.class)\n"
                 + "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"
-                + "1 errors, 0 warnings\n",
+                + "2 errors, 0 warnings\n",
                 lintProject(
                         manifest().minSdk(15),
                         java("src/test/pkg/MyAnnotation.java", ""
@@ -1345,10 +1335,7 @@ public class ApiDetectorTest extends AbstractCheckTest {
                 + "src/test/pkg/Java7API.java:8: Error: Class requires API level 19 (current min is 1): java.lang.ReflectiveOperationException [NewApi]\n"
                 + "        } catch (ReflectiveOperationException e) {\n"
                 + "                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"
-                + "src/test/pkg/Java7API.java:9: Error: Call requires API level 19 (current min is 1): java.lang.ReflectiveOperationException#printStackTrace [NewApi]\n"
-                + "            e.printStackTrace();\n"
-                + "              ~~~~~~~~~~~~~~~\n"
-                + "2 errors, 0 warnings\n",
+                + "1 errors, 0 warnings\n",
                 lintProject(
                         "apicheck/minsdk1.xml=>AndroidManifest.xml",
                         "src/test/pkg/Java7API.java.txt=>src/test/pkg/Java7API.java",
@@ -1550,7 +1537,7 @@ public class ApiDetectorTest extends AbstractCheckTest {
         // Regression test for https://code.google.com/p/android/issues/detail?id=97006
         // 97006: Gradle lint does not recognize Context.getDrawable() as API 21+
         assertEquals(
-                "src/test/pkg/MyFragment.java:10: Error: Call requires API level 21 (current min is 14): android.app.Activity#getDrawable [NewApi]\n" +
+                "src/test/pkg/MyFragment.java:10: Error: Call requires API level 21 (current min is 14): android.content.Context#getDrawable [NewApi]\n" +
                 "        getActivity().getDrawable(R.color.my_color);\n" +
                 "                      ~~~~~~~~~~~\n" +
                 "1 errors, 0 warnings\n",
@@ -1577,16 +1564,16 @@ public class ApiDetectorTest extends AbstractCheckTest {
     public void testConditionalApi0() throws Exception {
         // See https://code.google.com/p/android/issues/detail?id=137195
         assertEquals(""
-                + "src/test/pkg/ConditionalApiTest.java:28: Error: Call requires API level 18 (current min is 14): new android.animation.RectEvaluator [NewApi]\n"
+                + "src/test/pkg/ConditionalApiTest.java:28: Error: Call requires API level 18 (current min is 14): android.animation.RectEvaluator#RectEvaluator [NewApi]\n"
                 + "            new RectEvaluator(); // ERROR\n"
                 + "                ~~~~~~~~~~~~~\n"
-                + "src/test/pkg/ConditionalApiTest.java:37: Error: Call requires API level 21 (current min is 14): new android.animation.RectEvaluator [NewApi]\n"
+                + "src/test/pkg/ConditionalApiTest.java:37: Error: Call requires API level 21 (current min is 14): android.animation.RectEvaluator#RectEvaluator [NewApi]\n"
                 + "            new RectEvaluator(rect); // ERROR\n"
                 + "                ~~~~~~~~~~~~~\n"
-                + "src/test/pkg/ConditionalApiTest.java:43: Error: Call requires API level 21 (current min is 14): new android.animation.RectEvaluator [NewApi]\n"
+                + "src/test/pkg/ConditionalApiTest.java:43: Error: Call requires API level 21 (current min is 14): android.animation.RectEvaluator#RectEvaluator [NewApi]\n"
                 + "            new RectEvaluator(rect); // ERROR\n"
                 + "                ~~~~~~~~~~~~~\n"
-                + "src/test/pkg/ConditionalApiTest.java:45: Error: Call requires API level 21 (current min is 14): new android.animation.RectEvaluator [NewApi]\n"
+                + "src/test/pkg/ConditionalApiTest.java:45: Error: Call requires API level 21 (current min is 14): android.animation.RectEvaluator#RectEvaluator [NewApi]\n"
                 + "            new RectEvaluator(rect); // ERROR\n"
                 + "                ~~~~~~~~~~~~~\n"
                 + "4 errors, 0 warnings\n",
@@ -1602,100 +1589,100 @@ public class ApiDetectorTest extends AbstractCheckTest {
     public void testConditionalApi1() throws Exception {
         // See https://code.google.com/p/android/issues/detail?id=137195
         assertEquals(""
+                + "src/test/pkg/VersionConditional1.java:18: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n"
+                + "            new GridLayout(null).getOrientation(); // Flagged\n"
+                + "                ~~~~~~~~~~\n"
                 + "src/test/pkg/VersionConditional1.java:18: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#getOrientation [NewApi]\n"
                 + "            new GridLayout(null).getOrientation(); // Flagged\n"
                 + "                                 ~~~~~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1.java:18: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n"
+                + "src/test/pkg/VersionConditional1.java:24: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n"
                 + "            new GridLayout(null).getOrientation(); // Flagged\n"
                 + "                ~~~~~~~~~~\n"
                 + "src/test/pkg/VersionConditional1.java:24: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#getOrientation [NewApi]\n"
                 + "            new GridLayout(null).getOrientation(); // Flagged\n"
                 + "                                 ~~~~~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1.java:24: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n"
+                + "src/test/pkg/VersionConditional1.java:30: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n"
                 + "            new GridLayout(null).getOrientation(); // Flagged\n"
                 + "                ~~~~~~~~~~\n"
                 + "src/test/pkg/VersionConditional1.java:30: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#getOrientation [NewApi]\n"
                 + "            new GridLayout(null).getOrientation(); // Flagged\n"
                 + "                                 ~~~~~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1.java:30: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n"
+                + "src/test/pkg/VersionConditional1.java:36: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n"
                 + "            new GridLayout(null).getOrientation(); // Flagged\n"
                 + "                ~~~~~~~~~~\n"
                 + "src/test/pkg/VersionConditional1.java:36: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#getOrientation [NewApi]\n"
                 + "            new GridLayout(null).getOrientation(); // Flagged\n"
                 + "                                 ~~~~~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1.java:36: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n"
+                + "src/test/pkg/VersionConditional1.java:40: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n"
                 + "            new GridLayout(null).getOrientation(); // Flagged\n"
                 + "                ~~~~~~~~~~\n"
                 + "src/test/pkg/VersionConditional1.java:40: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#getOrientation [NewApi]\n"
                 + "            new GridLayout(null).getOrientation(); // Flagged\n"
                 + "                                 ~~~~~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1.java:40: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n"
+                + "src/test/pkg/VersionConditional1.java:48: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n"
                 + "            new GridLayout(null).getOrientation(); // Flagged\n"
                 + "                ~~~~~~~~~~\n"
                 + "src/test/pkg/VersionConditional1.java:48: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#getOrientation [NewApi]\n"
                 + "            new GridLayout(null).getOrientation(); // Flagged\n"
                 + "                                 ~~~~~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1.java:48: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n"
+                + "src/test/pkg/VersionConditional1.java:54: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n"
                 + "            new GridLayout(null).getOrientation(); // Flagged\n"
                 + "                ~~~~~~~~~~\n"
                 + "src/test/pkg/VersionConditional1.java:54: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#getOrientation [NewApi]\n"
                 + "            new GridLayout(null).getOrientation(); // Flagged\n"
                 + "                                 ~~~~~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1.java:54: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n"
-                + "            new GridLayout(null).getOrientation(); // Flagged\n"
-                + "                ~~~~~~~~~~\n"
+                + "src/test/pkg/VersionConditional1.java:60: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n"
+                + "                new GridLayout(null).getOrientation(); // Flagged\n"
+                + "                    ~~~~~~~~~~\n"
                 + "src/test/pkg/VersionConditional1.java:60: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#getOrientation [NewApi]\n"
                 + "                new GridLayout(null).getOrientation(); // Flagged\n"
                 + "                                     ~~~~~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1.java:60: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n"
+                + "src/test/pkg/VersionConditional1.java:62: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n"
                 + "                new GridLayout(null).getOrientation(); // Flagged\n"
                 + "                    ~~~~~~~~~~\n"
                 + "src/test/pkg/VersionConditional1.java:62: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#getOrientation [NewApi]\n"
                 + "                new GridLayout(null).getOrientation(); // Flagged\n"
                 + "                                     ~~~~~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1.java:62: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n"
-                + "                new GridLayout(null).getOrientation(); // Flagged\n"
-                + "                    ~~~~~~~~~~\n"
+                + "src/test/pkg/VersionConditional1.java:65: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n"
+                + "            new GridLayout(null).getOrientation(); // Flagged\n"
+                + "                ~~~~~~~~~~\n"
                 + "src/test/pkg/VersionConditional1.java:65: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#getOrientation [NewApi]\n"
                 + "            new GridLayout(null).getOrientation(); // Flagged\n"
                 + "                                 ~~~~~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1.java:65: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n"
+                + "src/test/pkg/VersionConditional1.java:76: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n"
+                + "            new GridLayout(null); // Flagged\n"
+                + "                ~~~~~~~~~~\n"
+                + "src/test/pkg/VersionConditional1.java:84: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n"
+                + "            new GridLayout(null); // Flagged\n"
+                + "                ~~~~~~~~~~\n"
+                + "src/test/pkg/VersionConditional1.java:90: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n"
+                + "            new GridLayout(null); // Flagged\n"
+                + "                ~~~~~~~~~~\n"
+                + "src/test/pkg/VersionConditional1.java:94: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n"
                 + "            new GridLayout(null).getOrientation(); // Flagged\n"
-                + "                ~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1.java:76: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n"
-                + "            new GridLayout(null); // Flagged\n"
-                + "                ~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1.java:84: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n"
-                + "            new GridLayout(null); // Flagged\n"
-                + "                ~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1.java:90: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n"
-                + "            new GridLayout(null); // Flagged\n"
                 + "                ~~~~~~~~~~\n"
                 + "src/test/pkg/VersionConditional1.java:94: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#getOrientation [NewApi]\n"
                 + "            new GridLayout(null).getOrientation(); // Flagged\n"
                 + "                                 ~~~~~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1.java:94: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n"
-                + "            new GridLayout(null).getOrientation(); // Flagged\n"
-                + "                ~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1.java:96: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n"
+                + "src/test/pkg/VersionConditional1.java:96: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n"
                 + "            new GridLayout(null); // Flagged\n"
                 + "                ~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1.java:102: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n"
+                + "src/test/pkg/VersionConditional1.java:102: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n"
                 + "            new GridLayout(null); // Flagged\n"
                 + "                ~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1.java:108: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n"
+                + "src/test/pkg/VersionConditional1.java:108: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n"
                 + "            new GridLayout(null); // Flagged\n"
                 + "                ~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1.java:114: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n"
+                + "src/test/pkg/VersionConditional1.java:114: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n"
                 + "            new GridLayout(null); // Flagged\n"
                 + "                ~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1.java:118: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n"
+                + "src/test/pkg/VersionConditional1.java:118: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n"
                 + "            new GridLayout(null); // Flagged\n"
                 + "                ~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1.java:126: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n"
+                + "src/test/pkg/VersionConditional1.java:126: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n"
                 + "            new GridLayout(null); // Flagged\n"
                 + "                ~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1.java:132: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n"
+                + "src/test/pkg/VersionConditional1.java:132: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n"
                 + "            new GridLayout(null); // Flagged\n"
                 + "                ~~~~~~~~~~\n"
                 + "32 errors, 0 warnings\n",
@@ -1713,103 +1700,103 @@ public class ApiDetectorTest extends AbstractCheckTest {
         // This is like testConditionalApi1, but with each logical lookup call extracted into
         // a single method. This makes debugging through the control flow graph a lot easier.
         assertEquals(""
-                + "src/test/pkg/VersionConditional1b.java:23: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n"
-                + "            new GridLayout(null); // Flagged\n"
-                + "                ~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1b.java:31: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#getOrientation [NewApi]\n"
-                + "                new GridLayout(null).getOrientation(); // Flagged\n"
-                + "                                     ~~~~~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1b.java:31: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n"
-                + "                new GridLayout(null).getOrientation(); // Flagged\n"
-                + "                    ~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1b.java:33: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#getOrientation [NewApi]\n"
-                + "                new GridLayout(null).getOrientation(); // Flagged\n"
-                + "                                     ~~~~~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1b.java:33: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n"
-                + "                new GridLayout(null).getOrientation(); // Flagged\n"
-                + "                    ~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1b.java:36: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#getOrientation [NewApi]\n"
-                + "            new GridLayout(null).getOrientation(); // Flagged\n"
-                + "                                 ~~~~~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1b.java:36: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n"
-                + "            new GridLayout(null).getOrientation(); // Flagged\n"
-                + "                ~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1b.java:44: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#getOrientation [NewApi]\n"
-                + "            new GridLayout(null).getOrientation(); // Flagged\n"
-                + "                                 ~~~~~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1b.java:44: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n"
-                + "            new GridLayout(null).getOrientation(); // Flagged\n"
-                + "                ~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1b.java:52: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#getOrientation [NewApi]\n"
-                + "            new GridLayout(null).getOrientation(); // Flagged\n"
-                + "                                 ~~~~~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1b.java:52: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n"
-                + "            new GridLayout(null).getOrientation(); // Flagged\n"
-                + "                ~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1b.java:58: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#getOrientation [NewApi]\n"
-                + "            new GridLayout(null).getOrientation(); // Flagged\n"
-                + "                                 ~~~~~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1b.java:58: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n"
-                + "            new GridLayout(null).getOrientation(); // Flagged\n"
-                + "                ~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1b.java:68: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#getOrientation [NewApi]\n"
-                + "            new GridLayout(null).getOrientation(); // Flagged\n"
-                + "                                 ~~~~~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1b.java:68: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n"
-                + "            new GridLayout(null).getOrientation(); // Flagged\n"
-                + "                ~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1b.java:76: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#getOrientation [NewApi]\n"
-                + "            new GridLayout(null).getOrientation(); // Flagged\n"
-                + "                                 ~~~~~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1b.java:76: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n"
-                + "            new GridLayout(null).getOrientation(); // Flagged\n"
-                + "                ~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1b.java:84: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#getOrientation [NewApi]\n"
-                + "            new GridLayout(null).getOrientation(); // Flagged\n"
-                + "                                 ~~~~~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1b.java:84: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n"
-                + "            new GridLayout(null).getOrientation(); // Flagged\n"
-                + "                ~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1b.java:92: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#getOrientation [NewApi]\n"
-                + "            new GridLayout(null).getOrientation(); // Flagged\n"
-                + "                                 ~~~~~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1b.java:92: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n"
-                + "            new GridLayout(null).getOrientation(); // Flagged\n"
-                + "                ~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1b.java:100: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n"
-                + "            new GridLayout(null); // Flagged\n"
-                + "                ~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1b.java:106: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n"
-                + "            new GridLayout(null); // Flagged\n"
-                + "                ~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1b.java:110: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#getOrientation [NewApi]\n"
-                + "            new GridLayout(null).getOrientation(); // Flagged\n"
-                + "                                 ~~~~~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1b.java:110: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n"
-                + "            new GridLayout(null).getOrientation(); // Flagged\n"
-                + "                ~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1b.java:112: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n"
-                + "            new GridLayout(null); // Flagged\n"
-                + "                ~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1b.java:118: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n"
-                + "            new GridLayout(null); // Flagged\n"
-                + "                ~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1b.java:124: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n"
-                + "            new GridLayout(null); // Flagged\n"
-                + "                ~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1b.java:130: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n"
-                + "            new GridLayout(null); // Flagged\n"
-                + "                ~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1b.java:134: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n"
-                + "            new GridLayout(null); // Flagged\n"
-                + "                ~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1b.java:142: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n"
-                + "            new GridLayout(null); // Flagged\n"
-                + "                ~~~~~~~~~~\n"
-                + "src/test/pkg/VersionConditional1b.java:148: Error: Call requires API level 14 (current min is 4): new android.widget.GridLayout [NewApi]\n"
-                + "            new GridLayout(null); // Flagged\n"
-                + "                ~~~~~~~~~~\n"
-                + "32 errors, 0 warnings\n",
+                        + "src/test/pkg/VersionConditional1b.java:23: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n"
+                        + "            new GridLayout(null); // Flagged\n"
+                        + "                ~~~~~~~~~~\n"
+                        + "src/test/pkg/VersionConditional1b.java:31: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n"
+                        + "                new GridLayout(null).getOrientation(); // Flagged\n"
+                        + "                    ~~~~~~~~~~\n"
+                        + "src/test/pkg/VersionConditional1b.java:31: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#getOrientation [NewApi]\n"
+                        + "                new GridLayout(null).getOrientation(); // Flagged\n"
+                        + "                                     ~~~~~~~~~~~~~~\n"
+                        + "src/test/pkg/VersionConditional1b.java:33: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n"
+                        + "                new GridLayout(null).getOrientation(); // Flagged\n"
+                        + "                    ~~~~~~~~~~\n"
+                        + "src/test/pkg/VersionConditional1b.java:33: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#getOrientation [NewApi]\n"
+                        + "                new GridLayout(null).getOrientation(); // Flagged\n"
+                        + "                                     ~~~~~~~~~~~~~~\n"
+                        + "src/test/pkg/VersionConditional1b.java:36: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n"
+                        + "            new GridLayout(null).getOrientation(); // Flagged\n"
+                        + "                ~~~~~~~~~~\n"
+                        + "src/test/pkg/VersionConditional1b.java:36: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#getOrientation [NewApi]\n"
+                        + "            new GridLayout(null).getOrientation(); // Flagged\n"
+                        + "                                 ~~~~~~~~~~~~~~\n"
+                        + "src/test/pkg/VersionConditional1b.java:44: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n"
+                        + "            new GridLayout(null).getOrientation(); // Flagged\n"
+                        + "                ~~~~~~~~~~\n"
+                        + "src/test/pkg/VersionConditional1b.java:44: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#getOrientation [NewApi]\n"
+                        + "            new GridLayout(null).getOrientation(); // Flagged\n"
+                        + "                                 ~~~~~~~~~~~~~~\n"
+                        + "src/test/pkg/VersionConditional1b.java:52: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n"
+                        + "            new GridLayout(null).getOrientation(); // Flagged\n"
+                        + "                ~~~~~~~~~~\n"
+                        + "src/test/pkg/VersionConditional1b.java:52: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#getOrientation [NewApi]\n"
+                        + "            new GridLayout(null).getOrientation(); // Flagged\n"
+                        + "                                 ~~~~~~~~~~~~~~\n"
+                        + "src/test/pkg/VersionConditional1b.java:58: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n"
+                        + "            new GridLayout(null).getOrientation(); // Flagged\n"
+                        + "                ~~~~~~~~~~\n"
+                        + "src/test/pkg/VersionConditional1b.java:58: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#getOrientation [NewApi]\n"
+                        + "            new GridLayout(null).getOrientation(); // Flagged\n"
+                        + "                                 ~~~~~~~~~~~~~~\n"
+                        + "src/test/pkg/VersionConditional1b.java:68: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n"
+                        + "            new GridLayout(null).getOrientation(); // Flagged\n"
+                        + "                ~~~~~~~~~~\n"
+                        + "src/test/pkg/VersionConditional1b.java:68: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#getOrientation [NewApi]\n"
+                        + "            new GridLayout(null).getOrientation(); // Flagged\n"
+                        + "                                 ~~~~~~~~~~~~~~\n"
+                        + "src/test/pkg/VersionConditional1b.java:76: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n"
+                        + "            new GridLayout(null).getOrientation(); // Flagged\n"
+                        + "                ~~~~~~~~~~\n"
+                        + "src/test/pkg/VersionConditional1b.java:76: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#getOrientation [NewApi]\n"
+                        + "            new GridLayout(null).getOrientation(); // Flagged\n"
+                        + "                                 ~~~~~~~~~~~~~~\n"
+                        + "src/test/pkg/VersionConditional1b.java:84: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n"
+                        + "            new GridLayout(null).getOrientation(); // Flagged\n"
+                        + "                ~~~~~~~~~~\n"
+                        + "src/test/pkg/VersionConditional1b.java:84: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#getOrientation [NewApi]\n"
+                        + "            new GridLayout(null).getOrientation(); // Flagged\n"
+                        + "                                 ~~~~~~~~~~~~~~\n"
+                        + "src/test/pkg/VersionConditional1b.java:92: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n"
+                        + "            new GridLayout(null).getOrientation(); // Flagged\n"
+                        + "                ~~~~~~~~~~\n"
+                        + "src/test/pkg/VersionConditional1b.java:92: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#getOrientation [NewApi]\n"
+                        + "            new GridLayout(null).getOrientation(); // Flagged\n"
+                        + "                                 ~~~~~~~~~~~~~~\n"
+                        + "src/test/pkg/VersionConditional1b.java:100: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n"
+                        + "            new GridLayout(null); // Flagged\n"
+                        + "                ~~~~~~~~~~\n"
+                        + "src/test/pkg/VersionConditional1b.java:106: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n"
+                        + "            new GridLayout(null); // Flagged\n"
+                        + "                ~~~~~~~~~~\n"
+                        + "src/test/pkg/VersionConditional1b.java:110: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n"
+                        + "            new GridLayout(null).getOrientation(); // Flagged\n"
+                        + "                ~~~~~~~~~~\n"
+                        + "src/test/pkg/VersionConditional1b.java:110: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#getOrientation [NewApi]\n"
+                        + "            new GridLayout(null).getOrientation(); // Flagged\n"
+                        + "                                 ~~~~~~~~~~~~~~\n"
+                        + "src/test/pkg/VersionConditional1b.java:112: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n"
+                        + "            new GridLayout(null); // Flagged\n"
+                        + "                ~~~~~~~~~~\n"
+                        + "src/test/pkg/VersionConditional1b.java:118: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n"
+                        + "            new GridLayout(null); // Flagged\n"
+                        + "                ~~~~~~~~~~\n"
+                        + "src/test/pkg/VersionConditional1b.java:124: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n"
+                        + "            new GridLayout(null); // Flagged\n"
+                        + "                ~~~~~~~~~~\n"
+                        + "src/test/pkg/VersionConditional1b.java:130: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n"
+                        + "            new GridLayout(null); // Flagged\n"
+                        + "                ~~~~~~~~~~\n"
+                        + "src/test/pkg/VersionConditional1b.java:134: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n"
+                        + "            new GridLayout(null); // Flagged\n"
+                        + "                ~~~~~~~~~~\n"
+                        + "src/test/pkg/VersionConditional1b.java:142: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n"
+                        + "            new GridLayout(null); // Flagged\n"
+                        + "                ~~~~~~~~~~\n"
+                        + "src/test/pkg/VersionConditional1b.java:148: Error: Call requires API level 14 (current min is 4): android.widget.GridLayout#GridLayout [NewApi]\n"
+                        + "            new GridLayout(null); // Flagged\n"
+                        + "                ~~~~~~~~~~\n"
+                        + "32 errors, 0 warnings\n",
 
                 lintProject(
                         "apicheck/classpath=>.classpath",
@@ -2207,7 +2194,7 @@ public class ApiDetectorTest extends AbstractCheckTest {
 
     public void testSupportLibraryCalls() throws Exception {
         assertEquals(""
-                + "src/test/pkg/SupportLibraryApiTest.java:22: Error: Call requires API level 21 (current min is 14): android.widget.ImageButton#setBackgroundTintList [NewApi]\n"
+                + "src/test/pkg/SupportLibraryApiTest.java:22: Error: Call requires API level 21 (current min is 14): android.view.View#setBackgroundTintList [NewApi]\n"
                 + "        button.setBackgroundTintList(colors); // ERROR\n"
                 + "               ~~~~~~~~~~~~~~~~~~~~~\n"
                 + "1 errors, 0 warnings\n",
@@ -2282,16 +2269,19 @@ public class ApiDetectorTest extends AbstractCheckTest {
     @SuppressWarnings("all") // sample code
     public void testRequiresApi() throws Exception {
         assertEquals(""
-                + "src/test/pkg/TestRequiresApi.java:9: Error: Call requires API level 21 (current min is 15): LollipopClass [NewApi]\n"
+                + "src/test/pkg/TestRequiresApi.java:8: Error: Call requires API level 19 (current min is 15): test.pkg.TestRequiresApi#requiresKitKat [NewApi]\n"
+                + "        requiresKitKat(); // ERROR - requires 19\n"
+                + "        ~~~~~~~~~~~~~~\n"
+                + "src/test/pkg/TestRequiresApi.java:9: Error: Call requires API level 21 (current min is 15): test.pkg.TestRequiresApi.LollipopClass#LollipopClass [NewApi]\n"
                 + "        LollipopClass lollipopClass = new LollipopClass();\n"
-                + "                                      ~~~~~~~~~~~~~~~~~~~\n"
-                + "src/test/pkg/TestRequiresApi.java:10: Error: Call requires API level 21 (current min is 15): requiresLollipop [NewApi]\n"
+                + "                                          ~~~~~~~~~~~~~\n"
+                + "src/test/pkg/TestRequiresApi.java:10: Error: Call requires API level 21 (current min is 15): test.pkg.TestRequiresApi.LollipopClass#requiresLollipop [NewApi]\n"
                 + "        lollipopClass.requiresLollipop(); // ERROR - requires 21\n"
-                + "                      ~~~~~~~~~~~~~~~~~~\n"
-                + "src/test/pkg/TestRequiresApi.java:28: Error: Call requires API level 22 (current min is 15): requiresLollipop [NewApi]\n"
+                + "                      ~~~~~~~~~~~~~~~~\n"
+                + "src/test/pkg/TestRequiresApi.java:28: Error: Call requires API level 22 (current min is 15): test.pkg.TestRequiresApi#requiresLollipop [NewApi]\n"
                 + "        requiresLollipop(); // ERROR\n"
-                + "        ~~~~~~~~~~~~~~~~~~\n"
-                + "3 errors, 0 warnings\n",
+                + "        ~~~~~~~~~~~~~~~~\n"
+                + "4 errors, 0 warnings\n",
                 lintProject(
                         manifest().minSdk(15),
                         java("src/test/pkg/TestRequiresApi.java", ""
@@ -2302,7 +2292,7 @@ public class ApiDetectorTest extends AbstractCheckTest {
                                 + "@SuppressWarnings({\"WeakerAccess\", \"unused\"})\n"
                                 + "public class TestRequiresApi {\n"
                                 + "    public void caller() {\n"
-                                + "        equiresKitKat(); // ERROR - requires 19\n"
+                                + "        requiresKitKat(); // ERROR - requires 19\n"
                                 + "        LollipopClass lollipopClass = new LollipopClass();\n"
                                 + "        lollipopClass.requiresLollipop(); // ERROR - requires 21\n"
                                 + "    }\n"
@@ -2542,10 +2532,7 @@ public class ApiDetectorTest extends AbstractCheckTest {
                 + "src/test/pkg/MultiCatch.java:25: Error: Multi-catch with these reflection exceptions requires API level 19 (current min is 1) because they get compiled to the common but new super type ReflectiveOperationException. As a workaround either create individual catch statements, or catch Exception. [NewApi]\n"
                 + "        } catch (IllegalAccessException | InvocationTargetException | NoSuchMethodException e) {\n"
                 + "                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"
-                + "src/test/pkg/MultiCatch.java:26: Error: Multi-catch with these reflection exceptions requires API level 19 (current min is 1) because they get compiled to the common but new super type ReflectiveOperationException. As a workaround either create individual catch statements, or catch Exception. [NewApi]\n"
-                + "            e.printStackTrace();\n"
-                + "              ~~~~~~~~~~~~~~~\n"
-                + "6 errors, 0 warnings\n",
+                + "5 errors, 0 warnings\n",
 
                 lintProject(
                         java("src/test/pkg/MultiCatch.java", ""
